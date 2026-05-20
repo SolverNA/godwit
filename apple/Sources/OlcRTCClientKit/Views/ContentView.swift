@@ -34,6 +34,8 @@ public struct ContentView: View {
                         onShowProfileDetails: showProfileDetails,
                         onShowSubscriptionDetails: showSubscriptionDetails,
                         onRefreshSubscription: viewModel.refreshSubscription,
+                        onPingProfile: viewModel.pingProfile,
+                        onPingSubscription: viewModel.pingSubscription,
                         onDeleteSubscription: viewModel.deleteSubscription
                     )
                 }
@@ -428,6 +430,8 @@ private struct ProfilesHomeView: View {
     let onShowProfileDetails: (ConnectionProfile) -> Void
     let onShowSubscriptionDetails: (SubscriptionGroup) -> Void
     let onRefreshSubscription: (UUID) -> Void
+    let onPingProfile: (UUID) -> Void
+    let onPingSubscription: (UUID) -> Void
     let onDeleteSubscription: (UUID) -> Void
 
     var body: some View {
@@ -440,13 +444,21 @@ private struct ProfilesHomeView: View {
 
             if !ungroupedProfiles.isEmpty {
                 Section("Профили") {
-                    ForEach(ungroupedProfiles) { profile in
+                    ForEach(Array(ungroupedProfiles.enumerated()), id: \.element.id) { index, profile in
                         ProfileSelectionRow(
                             profile: profile,
                             isSelected: viewModel.selectedProfileID == profile.id,
                             showsInfo: true,
+                            showsPing: true,
+                            isPinging: viewModel.pingingProfileIDs.contains(profile.id),
+                            pingState: viewModel.pingResults[profile.id],
                             onSelect: { viewModel.selectProfile(profile.id) },
+                            onPing: { onPingProfile(profile.id) },
                             onInfo: { onShowProfileDetails(profile) }
+                        )
+                        .profileListRowChrome(
+                            isSelected: viewModel.selectedProfileID == profile.id,
+                            topSeparator: index == 0 ? .visible : .hidden
                         )
                         .swipeActions {
                             Button("Удалить", role: .destructive) {
@@ -466,10 +478,15 @@ private struct ProfilesHomeView: View {
                     SubscriptionSelectionRow(
                         group: group,
                         isRefreshing: viewModel.refreshingSubscriptionIDs.contains(group.id),
+                        isPinging: group.profiles.contains { viewModel.pingingProfileIDs.contains($0.id) },
                         onRefresh: { onRefreshSubscription(group.id) },
+                        onPing: { onPingSubscription(group.id) },
                         onInfo: { onShowSubscriptionDetails(group) }
                     )
                     .listRowSeparator(.hidden, edges: .bottom)
+                    #if os(iOS)
+                    .listRowInsets(ProfileListLayout.rowInsets)
+                    #endif
                     .swipeActions {
                         Button("Удалить", role: .destructive) {
                             onDeleteSubscription(group.id)
@@ -481,11 +498,15 @@ private struct ProfilesHomeView: View {
                             profile: profile,
                             isSelected: viewModel.selectedProfileID == profile.id,
                             showsInfo: false,
-                            leadingIndent: 40,
+                            showsPing: false,
+                            leadingIndent: ProfileListLayout.subscriptionProfileIndent,
+                            isPinging: viewModel.pingingProfileIDs.contains(profile.id),
+                            pingState: viewModel.pingResults[profile.id],
                             onSelect: { viewModel.selectProfile(profile.id) },
+                            onPing: { onPingProfile(profile.id) },
                             onInfo: { onShowProfileDetails(profile) }
                         )
-                        .listRowSeparator(.hidden, edges: .bottom)
+                        .profileListRowChrome(isSelected: viewModel.selectedProfileID == profile.id)
                         .swipeActions {
                             Button("Удалить", role: .destructive) {
                                 viewModel.deleteProfiles(ids: [profile.id])
@@ -728,7 +749,9 @@ private struct SubscriptionGroup: Identifiable {
 private struct SubscriptionSelectionRow: View {
     let group: SubscriptionGroup
     let isRefreshing: Bool
+    let isPinging: Bool
     let onRefresh: () -> Void
+    let onPing: () -> Void
     let onInfo: () -> Void
 
     var body: some View {
@@ -761,10 +784,18 @@ private struct SubscriptionSelectionRow: View {
                 .disabled(isRefreshing || group.metadata.sourceURL == nil)
                 .accessibilityLabel("Обновить подписку")
 
+                PingButton(isPinging: isPinging, action: onPing)
+                    .accessibilityLabel("Пинг подписки")
+
                 InfoButton(action: onInfo)
             }
         }
+        #if os(iOS)
+        .padding(.leading, ProfileListLayout.contentLeadingPadding)
+        .padding(.trailing, ProfileListLayout.contentTrailingPadding)
+        #endif
         .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var subscriptionDetail: String {
@@ -780,15 +811,23 @@ private struct ProfileSelectionRow: View {
     let profile: ConnectionProfile
     let isSelected: Bool
     let showsInfo: Bool
+    let showsPing: Bool
     var leadingIndent: CGFloat = 0
+    let isPinging: Bool
+    let pingState: ProfilePingState?
     let onSelect: () -> Void
+    let onPing: () -> Void
     let onInfo: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             Button(action: onSelect) {
                 HStack(spacing: 12) {
-                    SubscriptionMarker(metadata: profile.subscription, fallbackSystemImage: "network")
+                    SubscriptionMarker(
+                        metadata: profile.subscription,
+                        fallbackSystemImage: "network",
+                        isSelected: isSelected
+                    )
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(profile.displayName)
@@ -811,33 +850,74 @@ private struct ProfileSelectionRow: View {
             .buttonStyle(.plain)
 
             HStack(spacing: 4) {
-                SelectionIndicator(isSelected: isSelected)
+                PingStateLabel(
+                    state: pingState,
+                    isPinging: isPinging,
+                    compact: !showsPing && !showsInfo
+                )
+                if showsPing {
+                    PingButton(isPinging: isPinging, action: onPing)
+                        .accessibilityLabel("Пинг профиля")
+                }
                 if showsInfo {
                     InfoButton(action: onInfo)
                 }
             }
         }
         .padding(.leading, leadingIndent)
+        #if os(iOS)
+        .padding(.leading, ProfileListLayout.contentLeadingPadding)
+        .padding(.trailing, ProfileListLayout.contentTrailingPadding)
+        #endif
         .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            #if os(macOS)
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.10))
+            }
+            #endif
+        }
     }
 }
 
-private struct SelectionIndicator: View {
-    let isSelected: Bool
-
-    var body: some View {
-        Group {
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.tint)
-            } else {
-                Color.clear
-            }
-        }
-        .font(.system(size: 18, weight: .medium))
-        .frame(width: 30, height: 30)
-        .contentShape(Rectangle())
+private extension View {
+    @ViewBuilder
+    func profileListRowChrome(isSelected: Bool, topSeparator: Visibility = .hidden) -> some View {
+        #if os(iOS)
+        self
+            .listRowSeparator(.hidden, edges: .top)
+            .listRowSeparator(.hidden, edges: .bottom)
+            .listRowInsets(ProfileListLayout.rowInsets)
+            .profileListRowBackground(isSelected: isSelected)
+        #else
+        self
+            .listRowSeparator(topSeparator, edges: .top)
+            .listRowSeparator(.hidden, edges: .bottom)
+        #endif
     }
+
+    @ViewBuilder
+    private func profileListRowBackground(isSelected: Bool) -> some View {
+        if isSelected {
+            self.listRowBackground(Color.accentColor.opacity(0.10))
+        } else {
+            self
+        }
+    }
+}
+
+private enum ProfileListLayout {
+    static let markerSize: CGFloat = 28
+    static let markerSpacing: CGFloat = 12
+    static let subscriptionProfileIndent = markerSize + markerSpacing
+
+    #if os(iOS)
+    static let contentLeadingPadding: CGFloat = 16
+    static let contentTrailingPadding: CGFloat = 10
+    static let rowInsets = EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0)
+    #endif
 }
 
 private struct InfoButton: View {
@@ -853,6 +933,96 @@ private struct InfoButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
         .accessibilityLabel("Подробности")
+    }
+}
+
+private struct PingButton: View {
+    let isPinging: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "speedometer")
+                .font(.system(size: 17, weight: .medium))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.secondary)
+        .opacity(isPinging ? 0.45 : 1)
+        .disabled(isPinging)
+    }
+}
+
+private struct PingStateLabel: View {
+    let state: ProfilePingState?
+    let isPinging: Bool
+    var compact = false
+
+    var body: some View {
+        Group {
+            if isPinging {
+                ProgressView()
+                    .controlSize(.small)
+            } else if let state {
+                switch state {
+                case .success(let milliseconds):
+                    Text("\(milliseconds) мс")
+                        .foregroundStyle(color(for: milliseconds))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .help("Последний пинг: \(milliseconds) мс")
+
+                case .failure(let message):
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                        .help(message)
+                }
+            } else {
+                Color.clear
+            }
+        }
+        .font(.caption.weight(.semibold))
+        .padding(.trailing, trailingPadding)
+        .frame(width: width, height: 30, alignment: alignment)
+    }
+
+    private var width: CGFloat {
+        if compact, isSuccessText {
+            return 56
+        }
+        if compact || isPinging {
+            return 30
+        }
+        if case .failure = state {
+            return 30
+        }
+        return 56
+    }
+
+    private var alignment: Alignment {
+        width == 30 ? .center : .trailing
+    }
+
+    private var trailingPadding: CGFloat {
+        compact && isSuccessText ? 8 : 0
+    }
+
+    private var isSuccessText: Bool {
+        if case .success = state {
+            return true
+        }
+        return false
+    }
+
+    private func color(for milliseconds: Int) -> Color {
+        if milliseconds < 150 {
+            return .green
+        }
+        if milliseconds < 350 {
+            return .orange
+        }
+        return .red
     }
 }
 
@@ -1024,12 +1194,19 @@ private struct LogScreen: View {
 private struct SubscriptionMarker: View {
     let metadata: SubscriptionMetadata?
     var fallbackSystemImage = "folder"
+    var isSelected = false
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 5)
-                .fill(markerColor.opacity(0.18))
+                .fill(markerColor.opacity(isSelected ? 0.28 : 0.18))
                 .frame(width: 28, height: 28)
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(markerColor, lineWidth: 1.5)
+                    }
+                }
 
             if let icon = metadata?.nodeIcon ?? metadata?.icon, !icon.isEmpty {
                 Text(icon)

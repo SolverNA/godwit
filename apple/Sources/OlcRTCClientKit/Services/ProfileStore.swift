@@ -20,19 +20,16 @@ public final class ProfileStore {
         }
 
         do {
-            let profiles = try JSONDecoder().decode([ConnectionProfile].self, from: data)
-            return profiles.map { profile in
-                var profile = profile
-                secretStore.loadSecrets(into: &profile)
-                return profile
-            }
+            var profiles = try JSONDecoder().decode([ConnectionProfile].self, from: data)
+            secretStore.loadSecrets(into: &profiles)
+            return profiles
         } catch {
             return [.empty]
         }
     }
 
     public func saveProfiles(_ profiles: [ConnectionProfile]) {
-        profiles.forEach(secretStore.saveSecrets)
+        secretStore.saveSecrets(from: profiles)
         let publicProfiles = profiles.map { profile in
             var profile = profile
             profile.keyHex = ""

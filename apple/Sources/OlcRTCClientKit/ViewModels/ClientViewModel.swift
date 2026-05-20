@@ -24,12 +24,15 @@ public final class ClientViewModel: ObservableObject {
     @Published public private(set) var isImporting = false
     @Published public private(set) var importErrorMessage: String?
     @Published public private(set) var refreshingSubscriptionIDs: Set<UUID> = []
+    @Published public private(set) var pingingProfileIDs: Set<UUID> = []
+    @Published public private(set) var pingResults: [UUID: ProfilePingState] = [:]
 
     private let engine: OlcRTCEngine
     private let store: ProfileStore
     private let uriParser: OlcRTCURIParser
     private let subscriptionParser: OlcRTCSubscriptionParser
     private let subscriptionFetcher: SubscriptionFetcher
+    private let profilePinger: any ProfilePinging
     private let systemProxyManager: SystemProxyManager
     #if os(iOS)
     private let packetTunnelManager = PacketTunnelManager()
@@ -39,6 +42,7 @@ public final class ClientViewModel: ObservableObject {
     private var startTask: Task<Void, Never>?
     private var importTask: Task<Void, Never>?
     private var refreshTasks: [UUID: Task<Void, Never>] = [:]
+    private var pingTasks: [UUID: Task<Void, Never>] = [:]
     private var runningMode: RunningMode?
 
     public init(
@@ -47,6 +51,7 @@ public final class ClientViewModel: ObservableObject {
         uriParser: OlcRTCURIParser = OlcRTCURIParser(),
         subscriptionParser: OlcRTCSubscriptionParser? = nil,
         subscriptionFetcher: SubscriptionFetcher = SubscriptionFetcher(),
+        profilePinger: any ProfilePinging = ProfilePinger(),
         systemProxyManager: SystemProxyManager = SystemProxyManager()
     ) {
         self.engine = engine
@@ -54,6 +59,7 @@ public final class ClientViewModel: ObservableObject {
         self.uriParser = uriParser
         self.subscriptionParser = subscriptionParser ?? OlcRTCSubscriptionParser(uriParser: uriParser)
         self.subscriptionFetcher = subscriptionFetcher
+        self.profilePinger = profilePinger
         self.systemProxyManager = systemProxyManager
 
         let loadedProfiles = store.loadProfiles().map { $0.normalizedForCurrentDefaults() }
@@ -73,6 +79,7 @@ public final class ClientViewModel: ObservableObject {
         startTask?.cancel()
         importTask?.cancel()
         refreshTasks.values.forEach { $0.cancel() }
+        pingTasks.values.forEach { $0.cancel() }
         #if os(iOS)
         Task { @MainActor [backgroundRuntimeKeeper] in
             backgroundRuntimeKeeper.stop()
@@ -208,6 +215,28 @@ public final class ClientViewModel: ObservableObject {
         }
 
         persistProfiles()
+    }
+
+    public func pingProfile(_ id: UUID) {
+        saveDraft()
+        guard let profile = profiles.first(where: { $0.id == id }) else {
+            appendLog("Не удалось выполнить пинг: профиль не найден.")
+            return
+        }
+        startPing(profile)
+    }
+
+    public func pingSubscription(_ id: UUID) {
+        saveDraft()
+        let profilesToPing = profiles.filter { $0.subscription?.id == id }
+        guard !profilesToPing.isEmpty else {
+            appendLog("Не удалось выполнить пинг подписки: профили не найдены.")
+            return
+        }
+
+        let subscriptionName = profilesToPing.first?.subscription?.name ?? "подписки"
+        appendLog("Пинг подписки \(subscriptionName): \(profilesToPing.count) профил(ей).")
+        profilesToPing.forEach(startPing)
     }
 
     public func importValue(_ value: String) {
@@ -378,6 +407,48 @@ public final class ClientViewModel: ObservableObject {
     private func persistProfiles() {
         store.saveProfiles(profiles)
         store.saveSelectedProfileID(selectedProfileID)
+    }
+
+    private func startPing(_ profile: ConnectionProfile) {
+        guard pingTasks[profile.id] == nil else {
+            return
+        }
+
+        if let validationMessage = validate(profile: profile) {
+            pingResults[profile.id] = .failure(message: validationMessage)
+            appendLog("Пинг \(profileLogName(profile)) не запущен: \(validationMessage)")
+            return
+        }
+
+        let profileID = profile.id
+        let profileName = profileLogName(profile)
+        pingingProfileIDs.insert(profileID)
+        pingResults[profileID] = nil
+
+        pingTasks[profileID] = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                pingingProfileIDs.remove(profileID)
+                pingTasks[profileID] = nil
+            }
+
+            do {
+                let result = try await profilePinger.ping(profile: profile)
+                guard !Task.isCancelled else { return }
+                pingResults[profileID] = .success(milliseconds: result.milliseconds)
+                appendLog("Пинг \(profileName): \(result.milliseconds) мс.")
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                pingResults[profileID] = .failure(message: error.localizedDescription)
+                appendLog("Пинг \(profileName) не удался: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func profileLogName(_ profile: ConnectionProfile) -> String {
+        profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Без названия" : profile.name
     }
 
     private func selectProfileAfterDeletion() {
