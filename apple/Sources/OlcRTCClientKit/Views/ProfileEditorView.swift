@@ -269,7 +269,7 @@ private struct ConnectionAckTimeoutRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: profileEditorRowSpacing) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
@@ -278,11 +278,11 @@ private struct ConnectionAckTimeoutRow: View {
 
             HStack(spacing: 8) {
                 TextField("", text: textValue)
-                    .textFieldStyle(.roundedBorder)
+                    .olcNativeInput()
                     .multilineTextAlignment(.trailing)
                     .font(.body.monospacedDigit())
                     .frame(width: 88)
-                    .accessibilityLabel(title)
+                    .accessibilityLabel(Text(LocalizedStringKey(title)))
 
                 CompactValueStepper(value: clampedValue, range: range, step: step)
             }
@@ -299,7 +299,7 @@ private struct ConnectionPickerRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: profileEditorRowSpacing) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
@@ -325,7 +325,7 @@ private struct ConnectionTextRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: profileEditorRowSpacing) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
@@ -333,11 +333,10 @@ private struct ConnectionTextRow: View {
             Spacer(minLength: profileEditorSpacerMinLength)
 
             TextField("", text: $text)
-                .olcPlainInput()
-                .textFieldStyle(.roundedBorder)
+                .olcNativeInput()
                 .multilineTextAlignment(.leading)
                 .frame(width: profileEditorTextFieldWidth)
-                .accessibilityLabel(title)
+                .accessibilityLabel(Text(LocalizedStringKey(title)))
                 .onSubmit(onCommit)
         }
         .frame(height: profileEditorConnectionRowHeight)
@@ -351,7 +350,7 @@ private struct ConnectionSecureRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: profileEditorRowSpacing) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
@@ -359,11 +358,10 @@ private struct ConnectionSecureRow: View {
             Spacer(minLength: profileEditorSpacerMinLength)
 
             SecureField("", text: $text)
-                .olcPlainInput()
-                .textFieldStyle(.roundedBorder)
+                .olcNativeInput()
                 .multilineTextAlignment(.leading)
                 .frame(width: profileEditorTextFieldWidth)
-                .accessibilityLabel(title)
+                .accessibilityLabel(Text(LocalizedStringKey(title)))
                 .onSubmit(onCommit)
         }
         .frame(height: profileEditorConnectionRowHeight)
@@ -388,7 +386,7 @@ private struct ConnectionNumberRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: profileEditorRowSpacing) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
@@ -397,10 +395,10 @@ private struct ConnectionNumberRow: View {
 
             HStack(spacing: 8) {
                 TextField("", value: clampedValue, format: .number)
-                    .textFieldStyle(.roundedBorder)
+                    .olcNativeInput()
                     .multilineTextAlignment(.trailing)
                     .frame(width: profileEditorNumberFieldWidth)
-                    .accessibilityLabel(title)
+                    .accessibilityLabel(Text(LocalizedStringKey(title)))
 
                 if !suffix.isEmpty {
                     Text(suffix)
@@ -460,13 +458,15 @@ private struct CompactValueStepper: View {
 
 private extension View {
     @ViewBuilder
-    func olcPlainInput() -> some View {
+    func olcNativeInput() -> some View {
         #if os(iOS)
         self
+            .textFieldStyle(.plain)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
         #else
         self
+            .textFieldStyle(.roundedBorder)
         #endif
     }
 }

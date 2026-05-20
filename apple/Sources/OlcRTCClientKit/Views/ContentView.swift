@@ -173,7 +173,7 @@ public struct ContentView: View {
 
     private var initialCreatedProfile: ConnectionProfile {
         var profile = ConnectionProfile.empty
-        profile.name = "Профиль \(viewModel.profiles.count + 1)"
+        profile.name = AppLocalization.format("Profile %d", viewModel.profiles.count + 1)
         return profile
     }
 
@@ -263,6 +263,7 @@ private struct ProfileSettingsScreen: View {
 
                         HStack(spacing: 8) {
                             TextField("", value: $viewModel.draft.socksPort, format: .number)
+                                .settingsPlainInput()
                                 .multilineTextAlignment(.trailing)
                                 .frame(width: 78)
                                 #if os(iOS)
@@ -278,8 +279,16 @@ private struct ProfileSettingsScreen: View {
                                     )
                                     viewModel.saveDraft()
                                 } label: {
+                                    #if os(iOS)
+                                    Image(systemName: "wand.and.stars")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .frame(width: 32, height: 32)
+                                        .contentShape(Rectangle())
+                                    #else
                                     Label("Свободный порт", systemImage: "wand.and.stars")
+                                    #endif
                                 }
+                                .accessibilityLabel("Свободный порт")
                             }
                         }
                     }
@@ -635,11 +644,11 @@ private struct EmptyProfilesView: View {
 }
 
 private struct InlineTextButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let action: () -> Void
 
     init(_ title: String, action: @escaping () -> Void) {
-        self.title = title
+        self.title = LocalizedStringKey(title)
         self.action = action
     }
 
@@ -967,11 +976,11 @@ private struct PingStateLabel: View {
             } else if let state {
                 switch state {
                 case .success(let milliseconds):
-                    Text("\(milliseconds) мс")
+                    Text(AppLocalization.format("%d ms", milliseconds))
                         .foregroundStyle(color(for: milliseconds))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
-                        .help("Последний пинг: \(milliseconds) мс")
+                        .help(AppLocalization.format("Last ping: %d ms", milliseconds))
 
                 case .failure(let message):
                     Image(systemName: "exclamationmark.circle.fill")
@@ -1107,7 +1116,10 @@ private struct SubscriptionDetailView: View {
                 Button {
                     saveSourceAndRefresh()
                 } label: {
-                    Label(isRefreshing ? "Обновление..." : "Обновить подписку", systemImage: "arrow.clockwise")
+                    Label(
+                        LocalizedStringKey(isRefreshing ? "Обновление..." : "Обновить подписку"),
+                        systemImage: "arrow.clockwise"
+                    )
                 }
                 .disabled(isRefreshing || sourceURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
@@ -1245,7 +1257,7 @@ private struct StatusBadge: View {
     private var title: String {
         switch status {
         case .failed(let message):
-            message.isEmpty ? "Ошибка" : "Ошибка: \(message)"
+            message.isEmpty ? AppLocalization.string("Error") : AppLocalization.format("Error: %@", message)
         default:
             status.localizedTitle
         }
@@ -1262,6 +1274,10 @@ private struct StatusBadge: View {
 }
 
 private func pluralizedServers(_ count: Int) -> String {
+    guard AppLocalization.localeIdentifier == "ru_RU" else {
+        return count == 1 ? "1 server" : "\(count) servers"
+    }
+
     let mod10 = count % 10
     let mod100 = count % 100
     let word: String
@@ -1277,7 +1293,7 @@ private func pluralizedServers(_ count: Int) -> String {
 
 private extension ConnectionProfile {
     var displayName: String {
-        name.isEmpty ? "Без названия" : name
+        name.isEmpty ? AppLocalization.string("Untitled") : name
     }
 
     var listDetail: String {
@@ -1296,11 +1312,11 @@ private extension ConnectionProfile {
 private extension ClientStatus {
     var localizedTitle: String {
         switch self {
-        case .stopped: "Отключено"
-        case .starting: "Подключение..."
-        case .ready: "Подключено"
-        case .stopping: "Отключение..."
-        case .failed: "Ошибка"
+        case .stopped: AppLocalization.string("Disconnected")
+        case .starting: AppLocalization.string("Connecting...")
+        case .ready: AppLocalization.string("Connected")
+        case .stopping: AppLocalization.string("Disconnecting...")
+        case .failed: AppLocalization.string("Error")
         }
     }
 }
@@ -1322,6 +1338,7 @@ private extension View {
     func settingsPlainInput() -> some View {
         #if os(iOS)
         self
+            .textFieldStyle(.plain)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
         #else

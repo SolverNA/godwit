@@ -15,6 +15,7 @@ let mobileTargets: [Target] = hasMobileFramework
 
 let package = Package(
     name: "OlcRTCApple",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v16),
         .macOS(.v13),
@@ -33,6 +34,9 @@ let package = Package(
         .target(
             name: "OlcRTCClientKit",
             dependencies: kitDependencies,
+            resources: [
+                .process("Resources"),
+            ],
             linkerSettings: hasMobileFramework
                 ? [.linkedLibrary("resolv", .when(platforms: [.iOS]))]
                 : []

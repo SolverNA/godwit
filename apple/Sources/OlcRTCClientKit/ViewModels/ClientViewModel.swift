@@ -89,10 +89,10 @@ public final class ClientViewModel: ObservableObject {
 
     public var selectedProfileName: String {
         guard selectedProfileID != nil else {
-            return "Нет профиля"
+            return AppLocalization.string("No profile")
         }
 
-        return draft.name.isEmpty ? "Без названия" : draft.name
+        return draft.name.isEmpty ? AppLocalization.string("Untitled") : draft.name
     }
 
     public var canStart: Bool {
@@ -122,7 +122,7 @@ public final class ClientViewModel: ObservableObject {
         saveDraft()
 
         var profile = ConnectionProfile.empty
-        profile.name = "Профиль \(profiles.count + 1)"
+        profile.name = AppLocalization.format("Profile %d", profiles.count + 1)
         profiles.append(profile)
         selectedProfileID = profile.id
         draft = profile
@@ -136,7 +136,7 @@ public final class ClientViewModel: ObservableObject {
         newProfile.id = UUID()
         newProfile.subscription = nil
         if newProfile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            newProfile.name = "Профиль \(profiles.count + 1)"
+            newProfile.name = AppLocalization.format("Profile %d", profiles.count + 1)
         }
 
         replacePlaceholderIfNeeded()
@@ -175,12 +175,12 @@ public final class ClientViewModel: ObservableObject {
         saveDraft()
 
         guard let metadata = profiles.compactMap(\.subscription).first(where: { $0.id == id }) else {
-            appendLog("Не удалось обновить подписку: подписка не найдена.")
+            appendLog(AppLocalization.string("Could not refresh subscription: subscription was not found."))
             return
         }
 
         guard let sourceURLValue = metadata.sourceURL, let sourceURL = URL(string: sourceURLValue) else {
-            appendLog("У подписки \(metadata.name) нет ссылки для обновления.")
+            appendLog(AppLocalization.format("Subscription %@ has no refresh URL.", metadata.name))
             return
         }
 
@@ -197,7 +197,7 @@ public final class ClientViewModel: ObservableObject {
                 let content = try await fetchSubscription(from: sourceURL)
                 try refreshSubscription(content, sourceURL: sourceURL, existingSubscriptionID: id)
             } catch {
-                appendLog("Не удалось обновить подписку: \(error.localizedDescription)")
+                appendLog(AppLocalization.format("Could not refresh subscription: %@", error.localizedDescription))
             }
         }
     }
@@ -220,7 +220,7 @@ public final class ClientViewModel: ObservableObject {
     public func pingProfile(_ id: UUID) {
         saveDraft()
         guard let profile = profiles.first(where: { $0.id == id }) else {
-            appendLog("Не удалось выполнить пинг: профиль не найден.")
+            appendLog(AppLocalization.string("Could not ping: profile was not found."))
             return
         }
         startPing(profile)
@@ -230,12 +230,12 @@ public final class ClientViewModel: ObservableObject {
         saveDraft()
         let profilesToPing = profiles.filter { $0.subscription?.id == id }
         guard !profilesToPing.isEmpty else {
-            appendLog("Не удалось выполнить пинг подписки: профили не найдены.")
+            appendLog(AppLocalization.string("Could not ping subscription: no profiles found."))
             return
         }
 
-        let subscriptionName = profilesToPing.first?.subscription?.name ?? "подписки"
-        appendLog("Пинг подписки \(subscriptionName): \(profilesToPing.count) профил(ей).")
+        let subscriptionName = profilesToPing.first?.subscription?.name ?? AppLocalization.string("subscription")
+        appendLog(AppLocalization.format("Pinging subscription %@: %d profile(s).", subscriptionName, profilesToPing.count))
         profilesToPing.forEach(startPing)
     }
 
@@ -266,7 +266,10 @@ public final class ClientViewModel: ObservableObject {
 
                 try importSubscription(value, sourceURL: nil)
             } catch {
-                let message = "Не удалось импортировать подписку: \(error.localizedDescription)"
+                let message = AppLocalization.format(
+                    "Could not import subscription: %@",
+                    error.localizedDescription
+                )
                 importErrorMessage = message
                 appendLog(message)
             }
@@ -285,9 +288,9 @@ public final class ClientViewModel: ObservableObject {
             selectedProfileID = profile.id
             draft = profile
             persistProfiles()
-            appendLog("Импортирована olcRTC-ссылка профиля.")
+            appendLog(AppLocalization.string("Imported olcRTC profile link."))
         } catch {
-            let message = "Не удалось импортировать профиль: \(error.localizedDescription)"
+            let message = AppLocalization.format("Could not import profile: %@", error.localizedDescription)
             importErrorMessage = message
             appendLog(message)
         }
@@ -313,7 +316,13 @@ public final class ClientViewModel: ObservableObject {
         var profileToStart = draft.normalizedForCurrentDefaults()
         let availableSocksPort = PortAvailability.nextAvailableTCPPort(startingAt: profileToStart.socksPort)
         if availableSocksPort != profileToStart.socksPort {
-            appendLog("SOCKS-порт \(profileToStart.socksPort) занят; используется \(availableSocksPort).")
+            appendLog(
+                AppLocalization.format(
+                    "SOCKS port %d is busy; using %d.",
+                    profileToStart.socksPort,
+                    availableSocksPort
+                )
+            )
             profileToStart.socksPort = availableSocksPort
         }
         if profileToStart != draft {
@@ -323,7 +332,7 @@ public final class ClientViewModel: ObservableObject {
 
         if let validationMessage = validate(profile: profileToStart) {
             status = .failed(validationMessage)
-            appendLog("Профиль заполнен не полностью: \(validationMessage)")
+            appendLog(AppLocalization.format("Profile is incomplete: %@", validationMessage))
             return
         }
 
@@ -337,7 +346,7 @@ public final class ClientViewModel: ObservableObject {
         let options = OlcRTCStartOptions(profile: profileToStart)
         status = .starting
         runningMode = .localProxy
-        appendLog("Подключение: \(selectedProfileName).")
+        appendLog(AppLocalization.format("Connecting: %@.", selectedProfileName))
 
         startTask = Task { [weak self] in
             guard let self else { return }
@@ -353,7 +362,7 @@ public final class ClientViewModel: ObservableObject {
                     saveDraft()
                 }
                 status = .ready
-                appendLog("SOCKS-прокси готов на 127.0.0.1:\(activePort).")
+                appendLog(AppLocalization.format("SOCKS proxy is ready on 127.0.0.1:%d.", activePort))
                 #if os(iOS)
                 startLocalProxyBackgroundRuntime()
                 #endif
@@ -366,7 +375,7 @@ public final class ClientViewModel: ObservableObject {
 
                 runningMode = nil
                 status = .failed(error.localizedDescription)
-                appendLog("Не удалось подключиться: \(error.localizedDescription)")
+                appendLog(AppLocalization.format("Could not connect: %@", error.localizedDescription))
                 #if os(iOS)
                 backgroundRuntimeKeeper.stop()
                 #endif
@@ -378,7 +387,7 @@ public final class ClientViewModel: ObservableObject {
     public func stop() {
         startTask?.cancel()
         status = .stopping
-        appendLog("Отключение: \(selectedProfileName).")
+        appendLog(AppLocalization.format("Disconnecting: %@.", selectedProfileName))
 
         Task { [weak self] in
             guard let self else { return }
@@ -386,7 +395,7 @@ public final class ClientViewModel: ObservableObject {
             #if os(iOS)
             case .packetTunnel:
                 await packetTunnelManager.stop()
-                appendLog("iOS VPN-туннель остановлен.")
+                appendLog(AppLocalization.string("iOS VPN tunnel stopped."))
             #endif
             case .localProxy, nil:
                 #if os(iOS)
@@ -416,7 +425,13 @@ public final class ClientViewModel: ObservableObject {
 
         if let validationMessage = validate(profile: profile) {
             pingResults[profile.id] = .failure(message: validationMessage)
-            appendLog("Пинг \(profileLogName(profile)) не запущен: \(validationMessage)")
+            appendLog(
+                AppLocalization.format(
+                    "Ping for %@ was not started: %@",
+                    profileLogName(profile),
+                    validationMessage
+                )
+            )
             return
         }
 
@@ -436,19 +451,21 @@ public final class ClientViewModel: ObservableObject {
                 let result = try await profilePinger.ping(profile: profile)
                 guard !Task.isCancelled else { return }
                 pingResults[profileID] = .success(milliseconds: result.milliseconds)
-                appendLog("Пинг \(profileName): \(result.milliseconds) мс.")
+                appendLog(AppLocalization.format("Ping %@: %d ms.", profileName, result.milliseconds))
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
                 pingResults[profileID] = .failure(message: error.localizedDescription)
-                appendLog("Пинг \(profileName) не удался: \(error.localizedDescription)")
+                appendLog(AppLocalization.format("Ping %@ failed: %@", profileName, error.localizedDescription))
             }
         }
     }
 
     private func profileLogName(_ profile: ConnectionProfile) -> String {
-        profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Без названия" : profile.name
+        profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? AppLocalization.string("Untitled")
+            : profile.name
     }
 
     private func selectProfileAfterDeletion() {
@@ -494,7 +511,7 @@ public final class ClientViewModel: ObservableObject {
             draft = firstProfile
         }
         persistProfiles()
-        appendLog("Импортирована подписка \(imported.name): \(imported.profiles.count) сервер(ов).")
+        appendLog(AppLocalization.format("Imported subscription %@: %d server(s).", imported.name, imported.profiles.count))
     }
 
     private func refreshSubscription(_ value: String, sourceURL: URL, existingSubscriptionID: UUID) throws {
@@ -553,10 +570,13 @@ public final class ClientViewModel: ObservableObject {
 
         persistProfiles()
         appendLog(
-            "Подписка \(imported.name) обновлена: " +
-            "\(matchedExistingIDs.count) обновлено, " +
-            "\(refreshedProfiles.count - matchedExistingIDs.count) добавлено, " +
-            "\(deletedIDs.count) удалено."
+            AppLocalization.format(
+                "Subscription %@ refreshed: %d updated, %d added, %d removed.",
+                imported.name,
+                matchedExistingIDs.count,
+                refreshedProfiles.count - matchedExistingIDs.count,
+                deletedIDs.count
+            )
         )
     }
 
@@ -634,7 +654,7 @@ public final class ClientViewModel: ObservableObject {
     }
 
     private func fetchSubscription(from url: URL) async throws -> String {
-        appendLog("Загрузка подписки: \(url.absoluteString).")
+        appendLog(AppLocalization.format("Loading subscription: %@.", url.absoluteString))
         do {
             return try await subscriptionFetcher.fetchWithURLSession(from: url)
         } catch {
@@ -644,11 +664,11 @@ public final class ClientViewModel: ObservableObject {
                 throw error
             }
 
-            appendLog("DNS-запрос для \(host) не прошел; повтор через DNS-over-HTTPS.")
+            appendLog(AppLocalization.format("DNS lookup for %@ failed; retrying through DNS-over-HTTPS.", host))
             do {
                 return try await subscriptionFetcher.fetchThroughResolvedEndpoint(from: url)
             } catch {
-                appendLog("Повтор через DNS-over-HTTPS не прошел: \(error.localizedDescription)")
+                appendLog(AppLocalization.format("Retry through DNS-over-HTTPS failed: %@", error.localizedDescription))
                 throw error
             }
         }
@@ -687,16 +707,16 @@ public final class ClientViewModel: ObservableObject {
     private func startLocalProxyBackgroundRuntime() {
         do {
             try backgroundRuntimeKeeper.start()
-            appendLog("Фоновый режим iOS активен для локального SOCKS.")
+            appendLog(AppLocalization.string("iOS background mode is active for local SOCKS."))
         } catch {
-            appendLog("Не удалось включить фоновый режим iOS: \(error.localizedDescription)")
+            appendLog(AppLocalization.format("Could not enable iOS background mode: %@", error.localizedDescription))
         }
     }
 
     private func startPacketTunnel(profile: ConnectionProfile) {
         status = .starting
         runningMode = .packetTunnel
-        appendLog("Подключение \(selectedProfileName) через iOS VPN.")
+        appendLog(AppLocalization.format("Connecting %@ through iOS VPN.", selectedProfileName))
 
         startTask = Task { [weak self] in
             guard let self else { return }
@@ -704,7 +724,7 @@ public final class ClientViewModel: ObservableObject {
             do {
                 try await packetTunnelManager.start(profile: profile)
                 status = .ready
-                appendLog("iOS VPN-туннель подключен. Системный трафик идет через olcRTC.")
+                appendLog(AppLocalization.string("iOS VPN tunnel connected. System traffic is routed through olcRTC."))
             } catch {
                 if error is CancellationError {
                     await packetTunnelManager.stop()
@@ -713,7 +733,7 @@ public final class ClientViewModel: ObservableObject {
 
                 runningMode = nil
                 status = .failed(error.localizedDescription)
-                appendLog("Не удалось запустить VPN: \(vpnStartFailureMessage(error))")
+                appendLog(AppLocalization.format("Could not start VPN: %@", vpnStartFailureMessage(error)))
                 await packetTunnelManager.stop()
             }
         }
@@ -736,18 +756,34 @@ public final class ClientViewModel: ObservableObject {
     private func enableSystemProxyIfNeeded(port: Int) async {
         #if os(macOS)
         guard useSystemProxy else {
-            appendLog("Системный SOCKS-прокси выключен. Настройте приложения вручную на 127.0.0.1:\(port).")
+            appendLog(
+                AppLocalization.format(
+                    "System SOCKS proxy is off. Configure apps manually for 127.0.0.1:%d.",
+                    port
+                )
+            )
             return
         }
 
         do {
             try await systemProxyManager.enable(service: selectedNetworkService, host: "127.0.0.1", port: port)
-            appendLog("Системный SOCKS-прокси включен для \(selectedNetworkService) на 127.0.0.1:\(port).")
+            appendLog(
+                AppLocalization.format(
+                    "System SOCKS proxy is enabled for %@ on 127.0.0.1:%d.",
+                    selectedNetworkService,
+                    port
+                )
+            )
         } catch {
-            appendLog("Не удалось настроить системный прокси: \(error.localizedDescription)")
+            appendLog(AppLocalization.format("Could not configure system proxy: %@", error.localizedDescription))
         }
         #else
-        appendLog("Системный трафик iOS не перенаправляется автоматически. Настройте приложения вручную на 127.0.0.1:\(port).")
+        appendLog(
+            AppLocalization.format(
+                "iOS system traffic is not routed automatically. Configure apps manually for 127.0.0.1:%d.",
+                port
+            )
+        )
         #endif
     }
 
@@ -759,49 +795,49 @@ public final class ClientViewModel: ObservableObject {
 
         do {
             try await systemProxyManager.disable(service: selectedNetworkService)
-            appendLog("Системный SOCKS-прокси отключен для \(selectedNetworkService).")
+            appendLog(AppLocalization.format("System SOCKS proxy is disabled for %@.", selectedNetworkService))
         } catch {
-            appendLog("Не удалось очистить настройки системного прокси: \(error.localizedDescription)")
+            appendLog(AppLocalization.format("Could not clear system proxy settings: %@", error.localizedDescription))
         }
         #endif
     }
 
     private func validate(profile: ConnectionProfile) -> String? {
         if profile.keyHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Укажите ключ шифрования."
+            return AppLocalization.string("Enter the encryption key.")
         }
         if profile.keyHex.count != 64 || !profile.keyHex.allSatisfy(\.isHexDigit) {
-            return "Ключ должен содержать 64 шестнадцатеричных символа."
+            return AppLocalization.string("The key must contain 64 hexadecimal characters.")
         }
         if profile.carrier != .jazz && profile.roomID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return profile.carrier == .jitsi
-                ? "Для Jitsi укажите Room URL."
-                : "Для этого провайдера нужен Room ID."
+                ? AppLocalization.string("Enter a Room URL for Jitsi.")
+                : AppLocalization.string("This provider requires a Room ID.")
         }
         if !(1...65_535).contains(profile.socksPort) {
-            return "SOCKS-порт должен быть от 1 до 65535."
+            return AppLocalization.string("SOCKS port must be between 1 and 65535.")
         }
         if profile.transport == .videochannel {
             if !["qrcode", "tile"].contains(profile.videoCodec) {
-                return "Video codec должен быть qrcode или tile."
+                return AppLocalization.string("Video codec must be qrcode or tile.")
             }
             if profile.videoWidth <= 0 || profile.videoHeight <= 0 {
-                return "Укажите размер videochannel."
+                return AppLocalization.string("Enter the videochannel size.")
             }
             if profile.videoFPS <= 0 {
-                return "Укажите FPS videochannel."
+                return AppLocalization.string("Enter the videochannel FPS.")
             }
             if profile.videoBitrate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return "Укажите битрейт videochannel."
+                return AppLocalization.string("Enter the videochannel bitrate.")
             }
             if !["none", "nvenc"].contains(profile.videoHardwareAcceleration) {
-                return "Аппаратное ускорение должно быть none или nvenc."
+                return AppLocalization.string("Hardware acceleration must be none or nvenc.")
             }
             if !["low", "medium", "high", "highest"].contains(profile.videoQRRecovery) {
-                return "QR коррекция должна быть low, medium, high или highest."
+                return AppLocalization.string("QR correction must be low, medium, high, or highest.")
             }
             if profile.videoCodec == "tile" && (profile.videoWidth != 1080 || profile.videoHeight != 1080) {
-                return "Для tile codec нужен размер 1080x1080."
+                return AppLocalization.string("Tile codec requires 1080x1080 size.")
             }
         }
 

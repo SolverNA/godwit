@@ -35,11 +35,11 @@ public enum ProfilePingError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .unsupportedPlatform:
-            "Пинг профиля не поддерживается на этой платформе."
+            AppLocalization.string("Profile ping is not supported on this platform.")
         case .invalidResult:
-            "Пинг завершился без результата."
+            AppLocalization.string("Ping finished without a result.")
         case .invalidHTTPStatus(let status):
-            "HTTP-пинг вернул статус \(status)."
+            AppLocalization.format("HTTP ping returned status %d.", status)
         }
     }
 }

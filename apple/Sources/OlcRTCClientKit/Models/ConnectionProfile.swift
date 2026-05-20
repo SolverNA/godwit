@@ -207,7 +207,7 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable {
     }
 
     public static var empty: ConnectionProfile {
-        ConnectionProfile(name: "Новый профиль")
+        ConnectionProfile(name: AppLocalization.string("New profile"))
     }
 
     public func normalizedForCurrentDefaults() -> ConnectionProfile {

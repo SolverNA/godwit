@@ -7,6 +7,7 @@ struct OlcRTCClientMacApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(\.locale, AppLocalization.locale)
                 .frame(minWidth: 500, minHeight: 620)
                 .background(WindowInitialSizeReader())
         }
