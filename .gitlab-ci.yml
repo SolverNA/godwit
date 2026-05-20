@@ -24,7 +24,6 @@ mobile:testflight:
     - go version
     - xcodegen --version 
     - cd apple
-    - xcodegen generate
     - plutil -p Sources/OlcRTCClientiOS/Info.plist | grep UISupportedInterfaceOrientations
     - cd ..
     - if ! command -v gomobile >/dev/null 2>&1; then go install golang.org/x/mobile/cmd/gomobile@latest; fi
