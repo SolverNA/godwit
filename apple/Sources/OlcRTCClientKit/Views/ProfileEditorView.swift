@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 private let profileEditorValueColumnWidth: CGFloat = 200
 #if os(iOS)
 private let profileEditorTextFieldWidth: CGFloat = 148
@@ -14,9 +18,10 @@ private let profileEditorNumberFieldWidth: CGFloat = 64
 private let profileEditorLabelMinWidth: CGFloat = 170
 private let profileEditorRowSpacing: CGFloat = 12
 private let profileEditorSpacerMinLength: CGFloat = 16
-private let profileEditorConnectionRowBottomInset: CGFloat = 6
+private let profileEditorConnectionRowBottomInset: CGFloat = 0
 #endif
 private let profileEditorConnectionRowHeight: CGFloat = 38
+private let profileEditorProfileRowHeight: CGFloat = 38
 private let videoCodecOptions = ["qrcode", "tile"]
 private let videoHardwareOptions = ["none", "nvenc"]
 private let videoQRRecoveryOptions = ["low", "medium", "high", "highest"]
@@ -94,20 +99,14 @@ public struct ProfileEditorView: View {
             }
 
             Section("Профиль") {
-                TextField("Название профиля", text: $profile.name)
-                    .olcNativeInput()
-                    .onSubmit(onCommit)
+                ProfileNameRow(name: $profile.name, onCommit: onCommit)
 
-                Picker("Провайдер", selection: $profile.carrier) {
-                    ForEach(Carrier.allCases) { carrier in
-                        Text(carrier.title).tag(carrier)
-                    }
+                ProfilePickerRow(title: "Провайдер", selection: $profile.carrier) { carrier in
+                    carrier.title
                 }
 
-                Picker("Транспорт", selection: $profile.transport) {
-                    ForEach(Transport.allCases) { transport in
-                        Text(transport.title).tag(transport)
-                    }
+                ProfilePickerRow(title: "Транспорт", selection: $profile.transport) { transport in
+                    transport.title
                 }
             }
 
@@ -129,6 +128,41 @@ public struct ProfileEditorView: View {
         .environment(\.defaultMinListHeaderHeight, 22)
         #endif
         .onDisappear(perform: onCommit)
+    }
+}
+
+private struct ProfileNameRow: View {
+    @Binding var name: String
+    let onCommit: () -> Void
+
+    var body: some View {
+        TextField("Название профиля", text: $name)
+            .olcNativeInput()
+            .onSubmit(onCommit)
+            .frame(height: profileEditorProfileRowHeight, alignment: .center)
+    }
+}
+
+private struct ProfilePickerRow<Option>: View where Option: CaseIterable & Hashable & Identifiable {
+    let title: String
+    @Binding var selection: Option
+    let optionTitle: (Option) -> String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
+            Text(LocalizedStringKey(title))
+
+            Spacer(minLength: profileEditorSpacerMinLength)
+
+            Picker("", selection: $selection) {
+                ForEach(Array(Option.allCases)) { option in
+                    Text(optionTitle(option)).tag(option)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: profileEditorValueColumnWidth, alignment: .trailing)
+        }
+        .frame(height: profileEditorProfileRowHeight, alignment: .center)
     }
 }
 
@@ -194,15 +228,13 @@ private struct ConnectionSettingsCard: View {
             ConnectionNumberRow(
                 title: "Размер фрагмента",
                 value: $profile.seiFragmentSize,
-                range: 64...4_096,
-                step: 64
+                range: 64...4_096
             )
             Divider()
             ConnectionAckTimeoutRow(
                 title: "ACK таймаут",
                 value: $profile.seiAckTimeoutMillis,
-                range: 100...10_000,
-                step: 100
+                range: 100...10_000
             )
 
         case .videochannel:
@@ -248,7 +280,7 @@ private struct ConnectionAckTimeoutRow: View {
     let title: String
     @Binding var value: Int
     let range: ClosedRange<Int>
-    var step = 1
+    @FocusState private var isFocused: Bool
 
     private var clampedValue: Binding<Int> {
         Binding(
@@ -273,28 +305,30 @@ private struct ConnectionAckTimeoutRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: profileEditorRowSpacing) {
+        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
+                .layoutPriority(1)
 
             Spacer(minLength: profileEditorSpacerMinLength)
 
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("", text: textValue)
-                    .olcNativeInput()
-                    .multilineTextAlignment(.trailing)
-                    .font(.body.monospacedDigit())
-                    .frame(width: 88)
-                    .accessibilityLabel(Text(LocalizedStringKey(title)))
-
-                CompactValueStepper(value: clampedValue, range: range, step: step)
-            }
-            .frame(alignment: .trailing)
+            TextField("", text: textValue)
+                .olcNativeInput()
+                .multilineTextAlignment(.trailing)
+                .font(.body.monospacedDigit())
+                .focused($isFocused)
+                .frame(width: 88)
+                .contentShape(Rectangle())
+                .accessibilityLabel(Text(LocalizedStringKey(title)))
+                .onTapGesture {
+                    isFocused = true
+                }
+                .frame(alignment: .trailing)
         }
         .padding(.bottom, profileEditorConnectionRowBottomInset)
-        .frame(height: profileEditorConnectionRowHeight, alignment: .bottom)
+        .frame(height: profileEditorConnectionRowHeight, alignment: .center)
     }
 }
 
@@ -309,6 +343,7 @@ private struct ConnectionPickerRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
+                .layoutPriority(1)
 
             Spacer(minLength: profileEditorSpacerMinLength)
 
@@ -328,25 +363,41 @@ private struct ConnectionTextRow: View {
     let title: String
     @Binding var text: String
     let onCommit: () -> Void
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: profileEditorRowSpacing) {
+        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
+                .layoutPriority(1)
 
             Spacer(minLength: profileEditorSpacerMinLength)
 
+            #if os(macOS)
+            MacConnectionTextField(
+                text: $text,
+                accessibilityLabel: title,
+                onCommit: onCommit
+            )
+            .frame(width: profileEditorTextFieldWidth, height: 22, alignment: .center)
+            #else
             TextField("", text: $text)
                 .olcNativeInput()
                 .multilineTextAlignment(.trailing)
+                .focused($isFocused)
                 .frame(width: profileEditorTextFieldWidth)
+                .contentShape(Rectangle())
                 .accessibilityLabel(Text(LocalizedStringKey(title)))
+                .onTapGesture {
+                    isFocused = true
+                }
                 .onSubmit(onCommit)
+            #endif
         }
         .padding(.bottom, profileEditorConnectionRowBottomInset)
-        .frame(height: profileEditorConnectionRowHeight, alignment: .bottom)
+        .frame(height: profileEditorConnectionRowHeight, alignment: .center)
     }
 }
 
@@ -354,13 +405,15 @@ private struct ConnectionSecureRow: View {
     let title: String
     @Binding var text: String
     let onCommit: () -> Void
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: profileEditorRowSpacing) {
+        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
+                .layoutPriority(1)
 
             Spacer(minLength: profileEditorSpacerMinLength)
 
@@ -368,12 +421,17 @@ private struct ConnectionSecureRow: View {
                 .olcNativeInput()
                 .textContentType(.oneTimeCode)
                 .multilineTextAlignment(.trailing)
+                .focused($isFocused)
                 .frame(width: profileEditorTextFieldWidth)
+                .contentShape(Rectangle())
                 .accessibilityLabel(Text(LocalizedStringKey(title)))
+                .onTapGesture {
+                    isFocused = true
+                }
                 .onSubmit(onCommit)
         }
         .padding(.bottom, profileEditorConnectionRowBottomInset)
-        .frame(height: profileEditorConnectionRowHeight, alignment: .bottom)
+        .frame(height: profileEditorConnectionRowHeight, alignment: .center)
     }
 }
 
@@ -381,8 +439,8 @@ private struct ConnectionNumberRow: View {
     let title: String
     @Binding var value: Int
     let range: ClosedRange<Int>
-    var step = 1
     var suffix = ""
+    @FocusState private var isFocused: Bool
 
     private var clampedValue: Binding<Int> {
         Binding(
@@ -394,75 +452,37 @@ private struct ConnectionNumberRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: profileEditorRowSpacing) {
+        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(minWidth: profileEditorLabelMinWidth, alignment: .leading)
+                .layoutPriority(1)
 
             Spacer(minLength: profileEditorSpacerMinLength)
 
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .center, spacing: 4) {
                 TextField("", value: clampedValue, format: .number)
                     .olcNativeInput()
                     .multilineTextAlignment(.trailing)
+                    .focused($isFocused)
                     .frame(width: profileEditorNumberFieldWidth)
+                    .contentShape(Rectangle())
                     .accessibilityLabel(Text(LocalizedStringKey(title)))
+                    .onTapGesture {
+                        isFocused = true
+                    }
 
                 if !suffix.isEmpty {
                     Text(suffix)
                         .foregroundStyle(.secondary)
                         .frame(width: 28, alignment: .leading)
                 }
-
-                CompactValueStepper(value: clampedValue, range: range, step: step)
             }
             .frame(alignment: .trailing)
         }
         .padding(.bottom, profileEditorConnectionRowBottomInset)
-        .frame(height: profileEditorConnectionRowHeight, alignment: .bottom)
-    }
-}
-
-private struct CompactValueStepper: View {
-    @Binding var value: Int
-    let range: ClosedRange<Int>
-    let step: Int
-
-    var body: some View {
-        #if os(iOS)
-        VStack(spacing: 0) {
-            Button {
-                value = min(value + step, range.upperBound)
-            } label: {
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 30, height: 18)
-            }
-            .buttonStyle(.plain)
-            .frame(width: 30, height: 18)
-            .disabled(value >= range.upperBound)
-
-            Divider()
-
-            Button {
-                value = max(value - step, range.lowerBound)
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 30, height: 18)
-            }
-            .buttonStyle(.plain)
-            .frame(width: 30, height: 18)
-            .disabled(value <= range.lowerBound)
-        }
-        .frame(width: 30, height: 37)
-        .fixedSize(horizontal: true, vertical: true)
-        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        #else
-        Stepper("", value: $value, in: range, step: step)
-            .labelsHidden()
-        #endif
+        .frame(height: profileEditorConnectionRowHeight, alignment: .center)
     }
 }
 
@@ -472,11 +492,171 @@ private extension View {
         #if os(iOS)
         self
             .textFieldStyle(.plain)
+            .lineLimit(1)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
         #else
         self
             .textFieldStyle(.plain)
+            .lineLimit(1)
         #endif
     }
 }
+
+#if os(macOS)
+private struct MacConnectionTextField: NSViewRepresentable {
+    @Binding var text: String
+    let accessibilityLabel: String
+    let onCommit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onCommit: onCommit)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NoFocusRingTextField()
+        textField.delegate = context.coordinator
+        textField.stringValue = text
+        textField.isBordered = false
+        textField.isBezeled = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.alignment = .right
+        textField.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textField.lineBreakMode = .byTruncatingHead
+        textField.cell = CenteredSingleLineTextFieldCell(textCell: text)
+        textField.cell?.usesSingleLineMode = true
+        textField.cell?.wraps = false
+        textField.cell?.isScrollable = true
+        textField.cell?.lineBreakMode = .byTruncatingHead
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.textColor = .labelColor
+        textField.setAccessibilityLabel(accessibilityLabel)
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.onCommit = onCommit
+
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+
+        nsView.alignment = .right
+        nsView.focusRingType = .none
+        nsView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        nsView.textColor = .labelColor
+        nsView.setAccessibilityLabel(accessibilityLabel)
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        var onCommit: () -> Void
+
+        init(text: Binding<String>, onCommit: @escaping () -> Void) {
+            self.text = text
+            self.onCommit = onCommit
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else {
+                return
+            }
+
+            text.wrappedValue = textField.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else {
+                return
+            }
+
+            text.wrappedValue = textField.stringValue
+            onCommit()
+        }
+
+        func control(
+            _ control: NSControl,
+            textView: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
+                return false
+            }
+
+            if let textField = control as? NSTextField {
+                text.wrappedValue = textField.stringValue
+            }
+            control.window?.makeFirstResponder(nil)
+            onCommit()
+            return true
+        }
+    }
+}
+
+private final class NoFocusRingTextField: NSTextField {
+    override var focusRingType: NSFocusRingType {
+        get { .none }
+        set {}
+    }
+
+    override var focusRingMaskBounds: NSRect {
+        .zero
+    }
+
+    override func drawFocusRingMask() {}
+}
+
+private final class CenteredSingleLineTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        centeredRect(forBounds: rect)
+    }
+
+    override func edit(
+        withFrame cellFrame: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(
+            withFrame: centeredRect(forBounds: cellFrame),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            event: event
+        )
+    }
+
+    override func select(
+        withFrame cellFrame: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        start selStart: Int,
+        length selLength: Int
+    ) {
+        super.select(
+            withFrame: centeredRect(forBounds: cellFrame),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            start: selStart,
+            length: selLength
+        )
+    }
+
+    private func centeredRect(forBounds rect: NSRect) -> NSRect {
+        var drawingRect = super.drawingRect(forBounds: rect)
+        let textHeight = cellSize(forBounds: rect).height
+        let verticalOffset = max(0, (drawingRect.height - textHeight) / 2)
+        drawingRect.origin.y += verticalOffset
+        drawingRect.size.height -= verticalOffset * 2
+        return drawingRect
+    }
+}
+#endif

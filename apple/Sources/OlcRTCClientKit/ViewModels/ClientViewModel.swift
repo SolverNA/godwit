@@ -418,6 +418,13 @@ public final class ClientViewModel: ObservableObject {
         }
     }
 
+    public func shutdownForAppTermination() {
+        guard status.isRunning || runningMode != nil else {
+            return
+        }
+        stop()
+    }
+
     public func clearLogs() {
         logs.removeAll()
     }

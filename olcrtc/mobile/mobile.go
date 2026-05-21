@@ -65,6 +65,8 @@ const (
 	httpPingSampleDelay   = 80 * time.Millisecond
 )
 
+var stopWaitTimeout = 2 * time.Second //nolint:gochecknoglobals // tests shorten stop timeout
+
 var (
 	mu                 sync.Mutex            //nolint:gochecknoglobals // package-level state intentional
 	defaults           mobileConfig          //nolint:gochecknoglobals // package-level state intentional
@@ -667,7 +669,11 @@ func Stop() {
 	cancelFunc()
 
 	if doneCh != nil {
-		<-doneCh
+		select {
+		case <-doneCh:
+		case <-time.After(stopWaitTimeout):
+			log.Printf("olcRTC stop timed out; runtime cancellation was requested")
+		}
 	}
 }
 

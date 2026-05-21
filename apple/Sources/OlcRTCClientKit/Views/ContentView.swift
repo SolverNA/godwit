@@ -1,6 +1,8 @@
 import SwiftUI
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
 #endif
 
 public struct ContentView: View {
@@ -151,6 +153,15 @@ public struct ContentView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            viewModel.shutdownForAppTermination()
+        }
+        #elseif os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
+            viewModel.shutdownForAppTermination()
+        }
+        #endif
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: viewModel.importErrorMessage)
     }
 
@@ -297,8 +308,10 @@ private struct ProfileSettingsScreen: View {
                                 .keyboardType(.numberPad)
                                 #endif
                                 .onSubmit(saveSettings)
+
                             Stepper("", value: socksPortStepperValue, in: ConnectionProfile.socksPortRange)
                                 .labelsHidden()
+                                .fixedSize()
 
                             randomPortButton
                         }
@@ -346,9 +359,11 @@ private struct ProfileSettingsScreen: View {
                             Text("\(viewModel.draft.startTimeoutMillis / 1_000)s")
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
+                                .frame(minWidth: 44, alignment: .trailing)
 
                             Stepper("", value: $viewModel.draft.startTimeoutMillis, in: 10_000...300_000, step: 5_000)
                                 .labelsHidden()
+                                .fixedSize()
                         }
                     }
                 }
@@ -417,10 +432,17 @@ private struct ProfileSettingsScreen: View {
             viewModel.saveDraft()
         } label: {
             Label("Свободный порт", systemImage: "wand.and.stars")
+                #if os(iOS)
+                .labelStyle(.iconOnly)
+                #else
                 .labelStyle(.titleAndIcon)
+                #endif
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
+        #if os(iOS)
+        .frame(width: 36, height: 30)
+        #endif
         .accessibilityLabel("Свободный порт")
         #if os(macOS)
         .help("Выбрать случайный свободный порт")

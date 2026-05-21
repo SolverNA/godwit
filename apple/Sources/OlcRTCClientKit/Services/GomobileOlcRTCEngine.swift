@@ -14,6 +14,13 @@ public final class GomobileOlcRTCEngine: OlcRTCEngine {
 
     public init() {}
 
+    deinit {
+        #if canImport(Mobile)
+        MobileStop()
+        MobileSetLogWriter(nil)
+        #endif
+    }
+
     public var events: AsyncStream<String> {
         eventPair.stream
     }

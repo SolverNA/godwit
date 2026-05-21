@@ -146,16 +146,26 @@ func RunWithReady(ctx context.Context, cfg Config, onReady func()) error {
 	// that bringUpLink hadn't populated yet.
 	defer c.shutdown()
 
-	if err := c.bringUpLink(runCtx, cfg, cancel); err != nil {
-		return err
-	}
-
 	lc := net.ListenConfig{}
 	listener, err := lc.Listen(runCtx, "tcp4", cfg.LocalAddr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", cfg.LocalAddr, err)
 	}
 	defer func() { _ = listener.Close() }()
+
+	listenerClosed := make(chan struct{})
+	go func() {
+		select {
+		case <-runCtx.Done():
+			_ = listener.Close()
+		case <-listenerClosed:
+		}
+	}()
+	defer close(listenerClosed)
+
+	if err := c.bringUpLink(runCtx, cfg, cancel); err != nil {
+		return err
+	}
 
 	logger.Infof("SOCKS5 server listening on %s", cfg.LocalAddr)
 

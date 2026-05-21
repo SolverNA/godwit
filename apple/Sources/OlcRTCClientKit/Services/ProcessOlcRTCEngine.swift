@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 #if os(macOS)
 public final class ProcessOlcRTCEngine: OlcRTCEngine {
@@ -15,6 +18,17 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
     private var configURL: URL?
 
     public init() {}
+
+    deinit {
+        process?.terminate()
+        #if canImport(Darwin)
+        if let process, process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        #endif
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        removeConfigFile()
+    }
 
     public var events: AsyncStream<String> {
         eventPair.stream
@@ -104,9 +118,7 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
         emit("Terminating olcRTC process.")
         task.terminate()
 
-        await Task.detached {
-            task.waitUntilExit()
-        }.value
+        await waitForExitOrKill(task)
 
         clearProcess()
     }
@@ -170,7 +182,37 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
         emit("Launching \(cliURL.path)")
         emit("Using olcRTC config \(configURL.path)")
         emit("olcRTC profile provider=\(options.carrierName) transport=\(options.transportName)")
-        try task.run()
+        do {
+            try task.run()
+        } catch {
+            clearProcess()
+            throw error
+        }
+    }
+
+    private func waitForExitOrKill(_ task: Process) async {
+        let didExit = await Task.detached {
+            let deadline = Date().addingTimeInterval(2)
+            while task.isRunning && Date() < deadline {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            return !task.isRunning
+        }.value
+
+        guard !didExit, task.isRunning else {
+            return
+        }
+
+        emit("olcRTC process did not exit after terminate; killing it.")
+        #if canImport(Darwin)
+        kill(task.processIdentifier, SIGKILL)
+        #else
+        task.terminate()
+        #endif
+
+        await Task.detached {
+            task.waitUntilExit()
+        }.value
     }
 
     private func handleOutput(_ data: Data) {

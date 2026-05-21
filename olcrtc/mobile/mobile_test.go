@@ -353,6 +353,37 @@ func TestWaitReadyStatesAndStop(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestStopReturnsWhenRuntimeDoesNotFinish(t *testing.T) {
+	resetMobileGlobals(t)
+	oldTimeout := stopWaitTimeout
+	stopWaitTimeout = time.Millisecond
+	t.Cleanup(func() {
+		stopWaitTimeout = oldTimeout
+		resetMobileGlobals(t)
+	})
+
+	cancelled := make(chan struct{})
+	mu.Lock()
+	cancel = func() { close(cancelled) }
+	done = make(chan struct{})
+	mu.Unlock()
+
+	startedAt := time.Now()
+	Stop()
+	mu.Lock()
+	cancel = nil
+	mu.Unlock()
+
+	if elapsed := time.Since(startedAt); elapsed > 200*time.Millisecond {
+		t.Fatalf("Stop() waited too long: %s", elapsed)
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("Stop() did not cancel runtime")
+	}
+}
+
 func TestLogBridge(t *testing.T) {
 	w := &testLogWriter{}
 	n, err := (&logBridge{w: w}).Write([]byte("abc"))

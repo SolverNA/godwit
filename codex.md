@@ -39,6 +39,27 @@
 
 ---
 
+## 🖼️ Иконки приложения
+
+В проекте есть два независимых пути доставки иконки. При замене иконки приложения обязательно обновлять оба:
+
+1. **Xcode-сборки iOS/macOS:** asset catalogs с именем `AppIcon`.
+   - macOS: `apple/Sources/OlcRTCClientMac/Assets.xcassets/AppIcon.appiconset/`
+   - iOS: `apple/Sources/OlcRTCClientiOS/Assets.xcassets/AppIcon.appiconset/`
+   - В `apple/Godwit.xcodeproj/project.pbxproj` для таргетов используется `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`.
+2. **Standalone macOS bundle:** отдельный файл `apple/Resources/AppIcon.icns`.
+   - Скрипт `apple/Scripts/build-macos-app.sh` копирует именно этот файл в `apple/.build/Godwit.app/Contents/Resources/AppIcon.icns`.
+   - Если обновить только `Assets.xcassets`, приложение из `apple/.build/Godwit.app` продолжит показывать старую иконку.
+
+После замены иконки нужно:
+* пересобрать PNG-наборы в обоих `AppIcon.appiconset`;
+* пересобрать `apple/Resources/AppIcon.icns` из той же исходной картинки;
+* запустить `apple/Scripts/build-macos-app.sh` для обновления standalone `.app`;
+* проверить, что новая иконка реально попала в собранный bundle: `apple/.build/Godwit.app/Contents/Resources/AppIcon.icns`;
+* учитывать кэш macOS: при визуальной проверке может понадобиться перерегистрировать bundle через `lsregister -f apple/.build/Godwit.app` и перезапустить Dock/Finder.
+
+---
+
 ## 🛠️ Валидация перед коммитом
 
 Перед отправкой изменений в репозиторий агент обязан проверить:
