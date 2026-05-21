@@ -1,5 +1,7 @@
 import Foundation
 
+private final class AppLocalizationBundleToken {}
+
 public enum AppLocalization {
     public static var locale: Locale {
         Locale(identifier: localeIdentifier)
@@ -19,10 +21,25 @@ public enum AppLocalization {
 
     private static var localizationBundle: Bundle {
         let languageCode = localeIdentifier.hasPrefix("ru") ? "ru" : "en"
-        guard let path = Bundle.module.path(forResource: languageCode, ofType: "lproj"),
+
+        guard let bundle = clientKitResourceBundle(),
+              let path = bundle.path(forResource: languageCode, ofType: "lproj"),
               let bundle = Bundle(path: path) else {
-            return .module
+            return .main
         }
         return bundle
+    }
+
+    private static func clientKitResourceBundle() -> Bundle? {
+        let bundleName = "OlcRTCApple_OlcRTCClientKit.bundle"
+        let candidates = [
+            Bundle.main.resourceURL?.appendingPathComponent(bundleName),
+            Bundle(for: AppLocalizationBundleToken.self).resourceURL?.appendingPathComponent(bundleName),
+            Bundle.main.bundleURL.appendingPathComponent(bundleName),
+        ]
+
+        return candidates.lazy.compactMap { url in
+            url.flatMap(Bundle.init(url:))
+        }.first
     }
 }

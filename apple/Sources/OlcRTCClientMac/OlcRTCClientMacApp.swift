@@ -4,6 +4,10 @@ import SwiftUI
 
 @main
 struct OlcRTCClientMacApp: App {
+    init() {
+        FileManager.default.changeCurrentDirectoryPath("/")
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

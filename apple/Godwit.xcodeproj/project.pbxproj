@@ -179,7 +179,6 @@
 			buildPhases = (
 				F3230008BE3B560C3FFC9BB3 /* Sources */,
 				72ECE5B6C991DEAB9139FB53 /* Resources */,
-				9B7C0213A8E84A86B0954B80 /* Copy olcRTC Support */,
 				22524732CCB859DF419A20E0 /* Frameworks */,
 			);
 			buildRules = (
@@ -282,31 +281,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		9B7C0213A8E84A86B0954B80 /* Copy olcRTC Support */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(PROJECT_DIR)/../olcrtc/data",
-				"$(PROJECT_DIR)/.build/olcrtc-macos",
-			);
-			name = "Copy olcRTC Support";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/data/names",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/olcrtc-macos",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -e\nRESOURCES=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSUPPORT_ROOT=\"${PROJECT_DIR}/../olcrtc\"\nCLI=\"${PROJECT_DIR}/.build/olcrtc-macos\"\nmkdir -p \"${RESOURCES}\"\nif [ -d \"${SUPPORT_ROOT}/data\" ]; then\n  rm -rf \"${RESOURCES}/data\"\n  ditto \"${SUPPORT_ROOT}/data\" \"${RESOURCES}/data\"\nfi\nif [ -f \"${CLI}\" ]; then\n  cp \"${CLI}\" \"${RESOURCES}/olcrtc-macos\"\n  chmod 755 \"${RESOURCES}/olcrtc-macos\"\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		5D3F1422AF3FC77C946DE2BD /* Sources */ = {
