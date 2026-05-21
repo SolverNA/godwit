@@ -12,7 +12,7 @@ final class OlcRTCConfigYAMLBuilderTests: XCTestCase {
             roomID: "https://meet.cryptopro.ru/pasklove-olcrtc-548f323503997581",
             clientID: "legacy-client-must-not-be-written",
             keyHex: key,
-            socksPort: 60_180,
+            socksPort: ConnectionProfile.defaultSocksPort,
             socksUser: "",
             socksPass: "",
             dnsServer: "8.8.8.8:53"
@@ -39,7 +39,7 @@ final class OlcRTCConfigYAMLBuilderTests: XCTestCase {
               dns: "8.8.8.8:53"
             socks:
               host: "127.0.0.1"
-              port: 60180
+              port: 21080
             data: "data"
             debug: false
 

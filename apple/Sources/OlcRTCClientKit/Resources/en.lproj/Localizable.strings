@@ -6,6 +6,7 @@
 "Готово" = "Done";
 "Порт" = "Port";
 "Свободный порт" = "Free Port";
+"Выбрать случайный свободный порт" = "Choose a random free port";
 "Имя пользователя" = "Username";
 "Пароль" = "Password";
 "Системный прокси" = "System Proxy";
@@ -94,7 +95,7 @@
 "Could not import subscription: %@" = "Could not import subscription: %@";
 "Imported olcRTC profile link." = "Imported olcRTC profile link.";
 "Could not import profile: %@" = "Could not import profile: %@";
-"SOCKS port %d is busy; using %d." = "SOCKS port %d is busy; using %d.";
+"SOCKS port %d is busy. Stop the existing process or choose another port." = "SOCKS port %d is busy. Stop the existing process or choose another port.";
 "Profile is incomplete: %@" = "Profile is incomplete: %@";
 "Connecting: %@." = "Connecting: %@.";
 "SOCKS proxy is ready on 127.0.0.1:%d." = "SOCKS proxy is ready on 127.0.0.1:%d.";
@@ -125,6 +126,7 @@
 "Enter a Room URL for Jitsi." = "Enter a Room URL for Jitsi.";
 "This provider requires a Room ID." = "This provider requires a Room ID.";
 "SOCKS port must be between 1 and 65535." = "SOCKS port must be between 1 and 65535.";
+"SOCKS port must be between 1024 and 65535." = "SOCKS port must be between 1024 and 65535.";
 "Video codec must be qrcode or tile." = "Video codec must be qrcode or tile.";
 "Enter the videochannel size." = "Enter the videochannel size.";
 "Enter the videochannel FPS." = "Enter the videochannel FPS.";

@@ -10,14 +10,9 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
     private var ready = false
     private var stopping = false
     private var portConflictDetected = false
-    private var retryCount = 0
     private var activePort: Int?
-    private var lastOptions: OlcRTCStartOptions?
-    private var lastSupportRoot: URL?
-    private var lastCliURL: URL?
     private var lastOutputLine: String?
     private var configURL: URL?
-    private let maxPortRetries = 20
 
     public init() {}
 
@@ -55,11 +50,7 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
         }
 
         withLock {
-            lastOptions = options
-            lastSupportRoot = supportRoot
-            lastCliURL = cliURL
             activePort = options.socksPort
-            retryCount = 0
         }
 
         try launchProcess(options: options, supportRoot: supportRoot, cliURL: cliURL, socksPort: options.socksPort)
@@ -82,10 +73,13 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
                 return
             }
             if !state.isRunning {
-                if state.portConflict,
-                   let port = state.activePort,
-                   try await retryAfterPortConflict(currentPort: port) {
-                    continue
+                if state.portConflict, let port = state.activePort {
+                    throw OlcRTCEngineError.invalidProfile(
+                        AppLocalization.format(
+                            "SOCKS port %d is busy. Stop the existing process or choose another port.",
+                            port
+                        )
+                    )
                 }
                 throw OlcRTCEngineError.invalidProfile(startFailureMessage(lastOutputLine: state.lastOutputLine))
             }
@@ -179,32 +173,6 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
         try task.run()
     }
 
-    private func retryAfterPortConflict(currentPort: Int) async throws -> Bool {
-        let state = withLock {
-            (
-                options: lastOptions,
-                supportRoot: lastSupportRoot,
-                cliURL: lastCliURL,
-                retries: retryCount
-            )
-        }
-
-        guard let options = state.options,
-              let supportRoot = state.supportRoot,
-              let cliURL = state.cliURL,
-              state.retries < maxPortRetries else {
-            return false
-        }
-
-        let nextPort = currentPort == 65_535 ? 1 : currentPort + 1
-        withLock {
-            retryCount += 1
-        }
-        emit("Port \(currentPort) was rejected by macOS; retrying on \(nextPort).")
-        try launchProcess(options: options, supportRoot: supportRoot, cliURL: cliURL, socksPort: nextPort)
-        return true
-    }
-
     private func handleOutput(_ data: Data) {
         let chunks = withLock {
             outputBuffer.append(data)
@@ -275,11 +243,7 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
             ready = false
             stopping = false
             portConflictDetected = false
-            retryCount = 0
             activePort = nil
-            lastOptions = nil
-            lastSupportRoot = nil
-            lastCliURL = nil
             lastOutputLine = nil
             removeConfigFile()
         }
@@ -329,16 +293,27 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
 
     private func supportRoot() -> URL? {
         let environment = ProcessInfo.processInfo.environment
+
+        var candidates = [
+            Bundle.main.resourceURL,
+            Bundle.main.bundleURL,
+        ]
+        .compactMap { $0 }
+
+        for candidate in candidates {
+            if let root = walkUpForSupportRoot(from: candidate) {
+                return root
+            }
+        }
+
         if let value = environment["OLCRTC_REPO_ROOT"], !value.isEmpty {
             return URL(fileURLWithPath: value)
         }
 
-        let candidates = [
-            Bundle.main.resourceURL,
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-            Bundle.main.bundleURL,
-        ]
-        .compactMap { $0 }
+        candidates.removeAll()
+        if environment["OLCRTC_ALLOW_CWD_SUPPORT_ROOT"] == "1" {
+            candidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
+        }
 
         for candidate in candidates {
             if let root = walkUpForSupportRoot(from: candidate) {

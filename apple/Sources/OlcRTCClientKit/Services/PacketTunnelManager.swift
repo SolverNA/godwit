@@ -34,6 +34,15 @@ public final class PacketTunnelManager {
         self.localizedDescription = localizedDescription
     }
 
+    public static func canAccessPacketTunnelPreferences() async -> Bool {
+        do {
+            _ = try await loadAllManagers()
+            return true
+        } catch {
+            return false
+        }
+    }
+
     public func start(
         profile: ConnectionProfile,
         eventHandler: ((String) async -> Void)? = nil

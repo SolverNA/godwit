@@ -5,24 +5,44 @@ import Darwin
 #endif
 
 public enum PortAvailability {
-    public static func nextAvailableTCPPort(startingAt preferredPort: Int = 10808, host: String = "127.0.0.1") -> Int {
-        let start = min(max(preferredPort, 1), 65_535)
+    public static func nextAvailableTCPPort(
+        startingAt preferredPort: Int = ConnectionProfile.defaultSocksPort,
+        host: String = "127.0.0.1"
+    ) -> Int {
+        let start = ConnectionProfile.clampedSocksPort(preferredPort)
 
-        for port in start...65_535 where isLocalTCPPortAvailable(port, host: host) {
+        for port in start...ConnectionProfile.maximumSocksPort where isLocalTCPPortAvailable(port, host: host) {
             return port
         }
 
-        if start > 1 {
-            for port in 1..<start where isLocalTCPPortAvailable(port, host: host) {
+        if start > ConnectionProfile.minimumSocksPort {
+            for port in ConnectionProfile.minimumSocksPort..<start where isLocalTCPPortAvailable(port, host: host) {
                 return port
             }
         }
 
-        return preferredPort
+        return ConnectionProfile.defaultSocksPort
+    }
+
+    public static func randomAvailableTCPPort(
+        in range: ClosedRange<Int> = 49_152...65_535,
+        host: String = "127.0.0.1"
+    ) -> Int {
+        let lowerBound = max(range.lowerBound, ConnectionProfile.minimumSocksPort)
+        let upperBound = min(range.upperBound, ConnectionProfile.maximumSocksPort)
+        guard lowerBound <= upperBound else {
+            return nextAvailableTCPPort(host: host)
+        }
+
+        for port in Array(lowerBound...upperBound).shuffled() where isLocalTCPPortAvailable(port, host: host) {
+            return port
+        }
+
+        return nextAvailableTCPPort(host: host)
     }
 
     public static func isLocalTCPPortAvailable(_ port: Int, host: String = "127.0.0.1") -> Bool {
-        guard (1...65_535).contains(port) else {
+        guard ConnectionProfile.socksPortRange.contains(port) else {
             return false
         }
 

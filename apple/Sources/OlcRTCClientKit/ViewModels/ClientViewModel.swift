@@ -15,7 +15,7 @@ public final class ClientViewModel: ObservableObject {
     @Published public private(set) var status: ClientStatus = .stopped
     @Published public private(set) var logs: [String] = []
     #if os(iOS)
-    @Published public var useSystemProxy = false
+    @Published public var useSystemProxy: Bool
     #else
     @Published public var useSystemProxy = true
     #endif
@@ -61,8 +61,15 @@ public final class ClientViewModel: ObservableObject {
         self.subscriptionFetcher = subscriptionFetcher
         self.profilePinger = profilePinger
         self.systemProxyManager = systemProxyManager
+        #if os(iOS)
+        useSystemProxy = false
+        #endif
 
-        let loadedProfiles = store.loadProfiles().map { $0.normalizedForCurrentDefaults() }
+        let storedProfiles = store.loadProfiles()
+        let loadedProfiles = storedProfiles.map { $0.normalizedForCurrentDefaults() }
+        if loadedProfiles != storedProfiles {
+            store.saveProfiles(loadedProfiles)
+        }
         let selected = store.loadSelectedProfileID()
         let initialProfile = loadedProfiles.first(where: { $0.id == selected }) ?? loadedProfiles.first
 
@@ -72,6 +79,9 @@ public final class ClientViewModel: ObservableObject {
 
         observeEngineEvents()
         loadNetworkServices()
+        #if os(iOS)
+        enableSystemVPNByDefaultIfAvailable()
+        #endif
     }
 
     deinit {
@@ -314,17 +324,6 @@ public final class ClientViewModel: ObservableObject {
         startTask?.cancel()
 
         var profileToStart = draft.normalizedForCurrentDefaults()
-        let availableSocksPort = PortAvailability.nextAvailableTCPPort(startingAt: profileToStart.socksPort)
-        if availableSocksPort != profileToStart.socksPort {
-            appendLog(
-                AppLocalization.format(
-                    "SOCKS port %d is busy; using %d.",
-                    profileToStart.socksPort,
-                    availableSocksPort
-                )
-            )
-            profileToStart.socksPort = availableSocksPort
-        }
         if profileToStart != draft {
             draft = profileToStart
             saveDraft()
@@ -333,6 +332,16 @@ public final class ClientViewModel: ObservableObject {
         if let validationMessage = validate(profile: profileToStart) {
             status = .failed(validationMessage)
             appendLog(AppLocalization.format("Profile is incomplete: %@", validationMessage))
+            return
+        }
+
+        if !PortAvailability.isLocalTCPPortAvailable(profileToStart.socksPort) {
+            let message = AppLocalization.format(
+                "SOCKS port %d is busy. Stop the existing process or choose another port.",
+                profileToStart.socksPort
+            )
+            status = .failed(message)
+            appendLog(message)
             return
         }
 
@@ -704,6 +713,16 @@ public final class ClientViewModel: ObservableObject {
     }
 
     #if os(iOS)
+    private func enableSystemVPNByDefaultIfAvailable() {
+        Task { [weak self] in
+            guard let self,
+                  await PacketTunnelManager.canAccessPacketTunnelPreferences() else {
+                return
+            }
+            useSystemProxy = true
+        }
+    }
+
     private func startLocalProxyBackgroundRuntime() {
         do {
             try backgroundRuntimeKeeper.start()
@@ -814,8 +833,8 @@ public final class ClientViewModel: ObservableObject {
                 ? AppLocalization.string("Enter a Room URL for Jitsi.")
                 : AppLocalization.string("This provider requires a Room ID.")
         }
-        if !(1...65_535).contains(profile.socksPort) {
-            return AppLocalization.string("SOCKS port must be between 1 and 65535.")
+        if !ConnectionProfile.socksPortRange.contains(profile.socksPort) {
+            return AppLocalization.string("SOCKS port must be between 1024 and 65535.")
         }
         if profile.transport == .videochannel {
             if !["qrcode", "tile"].contains(profile.videoCodec) {

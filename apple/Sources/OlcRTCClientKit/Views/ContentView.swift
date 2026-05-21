@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 public struct ContentView: View {
     @StateObject private var viewModel: ClientViewModel
@@ -251,6 +254,29 @@ private struct ProfileDetailScreen: View {
 private struct ProfileSettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: ClientViewModel
+    @State private var socksPortInput = ""
+    @FocusState private var isSocksPortFocused: Bool
+
+    private var socksPortText: Binding<String> {
+        Binding(
+            get: {
+                if socksPortInput.isEmpty && !isSocksPortFocused {
+                    return "\(viewModel.draft.socksPort)"
+                }
+                return socksPortInput
+            },
+            set: { newValue in
+                socksPortInput = newValue.filter(\.isNumber)
+            }
+        )
+    }
+
+    private var socksPortStepperValue: Binding<Int> {
+        Binding(
+            get: { viewModel.draft.socksPort },
+            set: setSocksPort
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -262,34 +288,19 @@ private struct ProfileSettingsScreen: View {
                         Spacer(minLength: 16)
 
                         HStack(spacing: 8) {
-                            TextField("", value: $viewModel.draft.socksPort, format: .number)
+                            TextField("", text: socksPortText)
                                 .settingsPlainInput()
                                 .multilineTextAlignment(.trailing)
                                 .frame(width: 78)
+                                .focused($isSocksPortFocused)
                                 #if os(iOS)
                                 .keyboardType(.numberPad)
                                 #endif
-                            Stepper("", value: $viewModel.draft.socksPort, in: 1...65_535)
+                                .onSubmit(saveSettings)
+                            Stepper("", value: socksPortStepperValue, in: ConnectionProfile.socksPortRange)
                                 .labelsHidden()
 
-                            if !PortAvailability.isLocalTCPPortAvailable(viewModel.draft.socksPort) {
-                                Button {
-                                    viewModel.draft.socksPort = PortAvailability.nextAvailableTCPPort(
-                                        startingAt: viewModel.draft.socksPort
-                                    )
-                                    viewModel.saveDraft()
-                                } label: {
-                                    #if os(iOS)
-                                    Image(systemName: "wand.and.stars")
-                                        .font(.system(size: 20, weight: .medium))
-                                        .frame(width: 32, height: 32)
-                                        .contentShape(Rectangle())
-                                    #else
-                                    Label("Свободный порт", systemImage: "wand.and.stars")
-                                    #endif
-                                }
-                                .accessibilityLabel("Свободный порт")
-                            }
+                            randomPortButton
                         }
                     }
 
@@ -350,15 +361,69 @@ private struct ProfileSettingsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Готово") {
-                        viewModel.saveDraft()
+                        saveSettings()
                         dismiss()
                     }
                 }
             }
-            .onDisappear(perform: viewModel.saveDraft)
+            .onAppear(perform: syncSocksPortInput)
+            .onChange(of: isSocksPortFocused) { isFocused in
+                if isFocused {
+                    syncSocksPortInput()
+                } else {
+                    commitSocksPortInput()
+                }
+            }
+            .onChange(of: viewModel.draft.socksPort) { newValue in
+                if !isSocksPortFocused {
+                    socksPortInput = "\(newValue)"
+                }
+            }
+            .onDisappear(perform: saveSettings)
         }
         #if os(macOS)
         .frame(width: 460, height: 500)
+        #endif
+    }
+
+    private func setSocksPort(_ port: Int) {
+        let clampedPort = ConnectionProfile.clampedSocksPort(port)
+        viewModel.draft.socksPort = clampedPort
+        socksPortInput = "\(clampedPort)"
+    }
+
+    private func syncSocksPortInput() {
+        socksPortInput = "\(viewModel.draft.socksPort)"
+    }
+
+    private func commitSocksPortInput() {
+        let digits = socksPortInput.filter(\.isNumber)
+        guard let port = Int(digits) else {
+            syncSocksPortInput()
+            return
+        }
+        setSocksPort(port)
+    }
+
+    private func saveSettings() {
+        commitSocksPortInput()
+        viewModel.saveDraft()
+    }
+
+    private var randomPortButton: some View {
+        Button {
+            isSocksPortFocused = false
+            setSocksPort(PortAvailability.randomAvailableTCPPort())
+            viewModel.saveDraft()
+        } label: {
+            Label("Свободный порт", systemImage: "wand.and.stars")
+                .labelStyle(.titleAndIcon)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .accessibilityLabel("Свободный порт")
+        #if os(macOS)
+        .help("Выбрать случайный свободный порт")
         #endif
     }
 }
@@ -677,15 +742,10 @@ private struct ImportProfileSheet: View {
             Form {
                 Section {
                     ZStack(alignment: .topLeading) {
-                        TextField("", text: $importText, axis: .vertical)
-                            .lineLimit(5...10)
-                            .textFieldStyle(.plain)
-                            .multilineTextAlignment(.leading)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            #endif
-                            .onSubmit(importValue)
+                        ImportTextInput(
+                            text: $importText,
+                            onSubmit: importValue
+                        )
 
                         if importText.isEmpty {
                             Text("Вставьте olcRTC-ссылку, URL подписки или текст sub.md")
@@ -735,6 +795,102 @@ private struct ImportProfileSheet: View {
         dismiss()
     }
 }
+
+private struct ImportTextInput: View {
+    @Binding var text: String
+    let onSubmit: () -> Void
+
+    var body: some View {
+        #if os(macOS)
+        MacImportTextInput(text: $text)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        #else
+        TextField("", text: $text, axis: .vertical)
+            .lineLimit(5...10)
+            .textFieldStyle(.plain)
+            .multilineTextAlignment(.leading)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .onSubmit(onSubmit)
+        #endif
+    }
+}
+
+#if os(macOS)
+private struct MacImportTextInput: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.string = text
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.textColor = .labelColor
+        textView.allowsUndo = true
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: scrollView.contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return
+        }
+
+        if textView.string != text {
+            textView.string = text
+        }
+
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.textColor = .labelColor
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        private var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else {
+                return
+            }
+
+            text.wrappedValue = textView.string
+        }
+    }
+}
+#endif
 
 private struct ImportLabel: View {
     let isImporting: Bool
@@ -1343,6 +1499,7 @@ private extension View {
             .autocorrectionDisabled()
         #else
         self
+            .textFieldStyle(.plain)
         #endif
     }
 }

@@ -16,7 +16,7 @@ public final class ProfileStore {
 
     public func loadProfiles() -> [ConnectionProfile] {
         guard let data = defaults.data(forKey: profilesKey) else {
-            return [.empty]
+            return []
         }
 
         do {
@@ -24,7 +24,7 @@ public final class ProfileStore {
             secretStore.loadSecrets(into: &profiles)
             return profiles
         } catch {
-            return [.empty]
+            return []
         }
     }
 

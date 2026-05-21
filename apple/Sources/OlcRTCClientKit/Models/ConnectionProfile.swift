@@ -39,6 +39,12 @@ public enum Transport: String, CaseIterable, Codable, Identifiable {
 
 public struct ConnectionProfile: Codable, Equatable, Identifiable {
     public static let defaultStartTimeoutMillis = 60_000
+    public static let minimumSocksPort = 1_024
+    public static let maximumSocksPort = 65_535
+    public static let defaultSocksPort = 21_080
+    public static var socksPortRange: ClosedRange<Int> {
+        minimumSocksPort...maximumSocksPort
+    }
 
     public var id: UUID
     public var subscription: SubscriptionMetadata?
@@ -80,7 +86,7 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable {
         roomID: String = "",
         clientID: String = "",
         keyHex: String = "",
-        socksPort: Int = 60_180,
+        socksPort: Int = Self.defaultSocksPort,
         socksUser: String = "",
         socksPass: String = "",
         dnsServer: String = "77.88.8.8:53",
@@ -111,7 +117,7 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable {
         self.roomID = roomID
         self.clientID = clientID
         self.keyHex = keyHex
-        self.socksPort = socksPort
+        self.socksPort = Self.normalizedSocksPort(socksPort)
         self.socksUser = socksUser
         self.socksPass = socksPass
         self.dnsServer = dnsServer
@@ -178,7 +184,8 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable {
         roomID = try container.decodeIfPresent(String.self, forKey: .roomID) ?? ""
         clientID = try container.decodeIfPresent(String.self, forKey: .clientID) ?? ""
         keyHex = try container.decodeIfPresent(String.self, forKey: .keyHex) ?? ""
-        socksPort = try container.decodeIfPresent(Int.self, forKey: .socksPort) ?? 60_180
+        let decodedSocksPort = try container.decodeIfPresent(Int.self, forKey: .socksPort)
+        socksPort = Self.normalizedSocksPort(decodedSocksPort ?? Self.defaultSocksPort)
         socksUser = try container.decodeIfPresent(String.self, forKey: .socksUser) ?? ""
         socksPass = try container.decodeIfPresent(String.self, forKey: .socksPass) ?? ""
         dnsServer = try container.decodeIfPresent(String.self, forKey: .dnsServer) ?? "77.88.8.8:53"
@@ -212,10 +219,19 @@ public struct ConnectionProfile: Codable, Equatable, Identifiable {
 
     public func normalizedForCurrentDefaults() -> ConnectionProfile {
         var profile = self
+        profile.socksPort = Self.normalizedSocksPort(profile.socksPort)
         if profile.startTimeoutMillis < Self.defaultStartTimeoutMillis {
             profile.startTimeoutMillis = Self.defaultStartTimeoutMillis
         }
         return profile
+    }
+
+    public static func normalizedSocksPort(_ port: Int) -> Int {
+        socksPortRange.contains(port) ? port : defaultSocksPort
+    }
+
+    public static func clampedSocksPort(_ port: Int) -> Int {
+        min(max(port, minimumSocksPort), maximumSocksPort)
     }
 }
 

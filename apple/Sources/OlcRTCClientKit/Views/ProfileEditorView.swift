@@ -7,14 +7,16 @@ private let profileEditorNumberFieldWidth: CGFloat = 56
 private let profileEditorLabelMinWidth: CGFloat = 0
 private let profileEditorRowSpacing: CGFloat = 8
 private let profileEditorSpacerMinLength: CGFloat = 8
+private let profileEditorConnectionRowBottomInset: CGFloat = 0
 #else
 private let profileEditorTextFieldWidth: CGFloat = profileEditorValueColumnWidth
 private let profileEditorNumberFieldWidth: CGFloat = 64
 private let profileEditorLabelMinWidth: CGFloat = 170
 private let profileEditorRowSpacing: CGFloat = 12
 private let profileEditorSpacerMinLength: CGFloat = 16
+private let profileEditorConnectionRowBottomInset: CGFloat = 6
 #endif
-private let profileEditorConnectionRowHeight: CGFloat = 46
+private let profileEditorConnectionRowHeight: CGFloat = 38
 private let videoCodecOptions = ["qrcode", "tile"]
 private let videoHardwareOptions = ["none", "nvenc"]
 private let videoQRRecoveryOptions = ["low", "medium", "high", "highest"]
@@ -93,6 +95,7 @@ public struct ProfileEditorView: View {
 
             Section("Профиль") {
                 TextField("Название профиля", text: $profile.name)
+                    .olcNativeInput()
                     .onSubmit(onCommit)
 
                 Picker("Провайдер", selection: $profile.carrier) {
@@ -114,6 +117,9 @@ public struct ProfileEditorView: View {
                     isExpanded: $isAdvancedExpanded,
                     onCommit: onCommit
                 )
+                #if os(macOS)
+                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                #endif
             }
         }
         .formStyle(.grouped)
@@ -165,7 +171,6 @@ private struct ConnectionSettingsCard: View {
                     ConnectionSecureRow(title: "Ключ", text: $profile.keyHex, onCommit: onCommit)
 
                     transportRows
-                    Divider()
                 }
             }
         }
@@ -268,7 +273,7 @@ private struct ConnectionAckTimeoutRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
+        HStack(alignment: .bottom, spacing: profileEditorRowSpacing) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -276,7 +281,7 @@ private struct ConnectionAckTimeoutRow: View {
 
             Spacer(minLength: profileEditorSpacerMinLength)
 
-            HStack(spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
                 TextField("", text: textValue)
                     .olcNativeInput()
                     .multilineTextAlignment(.trailing)
@@ -286,9 +291,10 @@ private struct ConnectionAckTimeoutRow: View {
 
                 CompactValueStepper(value: clampedValue, range: range, step: step)
             }
-            .frame(height: profileEditorConnectionRowHeight, alignment: .trailing)
+            .frame(alignment: .trailing)
         }
-        .frame(height: profileEditorConnectionRowHeight, alignment: .center)
+        .padding(.bottom, profileEditorConnectionRowBottomInset)
+        .frame(height: profileEditorConnectionRowHeight, alignment: .bottom)
     }
 }
 
@@ -324,7 +330,7 @@ private struct ConnectionTextRow: View {
     let onCommit: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
+        HStack(alignment: .bottom, spacing: profileEditorRowSpacing) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -334,12 +340,13 @@ private struct ConnectionTextRow: View {
 
             TextField("", text: $text)
                 .olcNativeInput()
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(.trailing)
                 .frame(width: profileEditorTextFieldWidth)
                 .accessibilityLabel(Text(LocalizedStringKey(title)))
                 .onSubmit(onCommit)
         }
-        .frame(height: profileEditorConnectionRowHeight)
+        .padding(.bottom, profileEditorConnectionRowBottomInset)
+        .frame(height: profileEditorConnectionRowHeight, alignment: .bottom)
     }
 }
 
@@ -349,7 +356,7 @@ private struct ConnectionSecureRow: View {
     let onCommit: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
+        HStack(alignment: .bottom, spacing: profileEditorRowSpacing) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -359,12 +366,14 @@ private struct ConnectionSecureRow: View {
 
             SecureField("", text: $text)
                 .olcNativeInput()
-                .multilineTextAlignment(.leading)
+                .textContentType(.oneTimeCode)
+                .multilineTextAlignment(.trailing)
                 .frame(width: profileEditorTextFieldWidth)
                 .accessibilityLabel(Text(LocalizedStringKey(title)))
                 .onSubmit(onCommit)
         }
-        .frame(height: profileEditorConnectionRowHeight)
+        .padding(.bottom, profileEditorConnectionRowBottomInset)
+        .frame(height: profileEditorConnectionRowHeight, alignment: .bottom)
     }
 }
 
@@ -385,7 +394,7 @@ private struct ConnectionNumberRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: profileEditorRowSpacing) {
+        HStack(alignment: .bottom, spacing: profileEditorRowSpacing) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -393,7 +402,7 @@ private struct ConnectionNumberRow: View {
 
             Spacer(minLength: profileEditorSpacerMinLength)
 
-            HStack(spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
                 TextField("", value: clampedValue, format: .number)
                     .olcNativeInput()
                     .multilineTextAlignment(.trailing)
@@ -410,7 +419,8 @@ private struct ConnectionNumberRow: View {
             }
             .frame(alignment: .trailing)
         }
-        .frame(height: profileEditorConnectionRowHeight)
+        .padding(.bottom, profileEditorConnectionRowBottomInset)
+        .frame(height: profileEditorConnectionRowHeight, alignment: .bottom)
     }
 }
 
@@ -466,7 +476,7 @@ private extension View {
             .autocorrectionDisabled()
         #else
         self
-            .textFieldStyle(.roundedBorder)
+            .textFieldStyle(.plain)
         #endif
     }
 }

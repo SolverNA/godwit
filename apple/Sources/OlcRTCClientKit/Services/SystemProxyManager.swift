@@ -63,6 +63,7 @@ public final class SystemProxyManager {
             let output = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
             process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: "/", isDirectory: true)
             process.standardOutput = output
             process.standardError = output
 

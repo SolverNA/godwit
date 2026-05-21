@@ -11,7 +11,6 @@ public final class GomobileOlcRTCEngine: OlcRTCEngine {
     #if canImport(Mobile)
     private var logRelay: MobileLogRelay?
     #endif
-    private let maxPortRetries = 8
 
     public init() {}
 
@@ -41,35 +40,24 @@ public final class GomobileOlcRTCEngine: OlcRTCEngine {
         try validate(options)
 
         #if canImport(Mobile)
-        var port = PortAvailability.nextAvailableTCPPort(startingAt: options.socksPort)
-        var lastError: Error?
-
-        for attempt in 0...maxPortRetries {
-            if attempt > 0 {
-                port = PortAvailability.nextAvailableTCPPort(startingAt: port == 65_535 ? 1 : port + 1)
+        emit("Starting olcRTC on 127.0.0.1:\(options.socksPort)")
+        do {
+            try await startMobile(options: options)
+            withLock {
+                currentSocksPort = options.socksPort
             }
-            emit("Starting olcRTC on 127.0.0.1:\(port)")
-
-            var attemptOptions = options
-            attemptOptions.socksPort = port
-
-            do {
-                try await startMobile(options: attemptOptions)
-                withLock {
-                    currentSocksPort = port
-                }
-                return
-            } catch {
-                lastError = error
-                guard isPortConflict(error), attempt < maxPortRetries else {
-                    throw error
-                }
-                emit("SOCKS port \(port) is busy; retrying on another port.")
+        } catch {
+            if isPortConflict(error) {
                 MobileStop()
+                throw OlcRTCEngineError.invalidProfile(
+                    AppLocalization.format(
+                        "SOCKS port %d is busy. Stop the existing process or choose another port.",
+                        options.socksPort
+                    )
+                )
             }
+            throw error
         }
-
-        throw lastError ?? OlcRTCEngineError.frameworkMissing
         #else
         emit("Starting olcRTC on 127.0.0.1:\(options.socksPort)")
         throw OlcRTCEngineError.frameworkMissing
@@ -156,8 +144,8 @@ public final class GomobileOlcRTCEngine: OlcRTCEngine {
             let fieldName = options.carrierName == "jitsi" ? "Room URL" : "Room ID"
             throw OlcRTCEngineError.invalidProfile("\(fieldName) is required for this carrier.")
         }
-        if !(1...65_535).contains(options.socksPort) {
-            throw OlcRTCEngineError.invalidProfile("SOCKS port must be between 1 and 65535.")
+        if !ConnectionProfile.socksPortRange.contains(options.socksPort) {
+            throw OlcRTCEngineError.invalidProfile("SOCKS port must be between 1024 and 65535.")
         }
     }
 
