@@ -240,6 +240,7 @@ public struct SubscriptionMetadata: Codable, Equatable, Identifiable {
     public var name: String
     public var sourceURL: String?
     public var updatedAtUnix: TimeInterval?
+    public var lastFetchedAtUnix: TimeInterval?
     public var refreshInterval: String?
     public var color: String?
     public var icon: String?
@@ -258,6 +259,7 @@ public struct SubscriptionMetadata: Codable, Equatable, Identifiable {
         name: String,
         sourceURL: String? = nil,
         updatedAtUnix: TimeInterval? = nil,
+        lastFetchedAtUnix: TimeInterval? = nil,
         refreshInterval: String? = nil,
         color: String? = nil,
         icon: String? = nil,
@@ -275,6 +277,7 @@ public struct SubscriptionMetadata: Codable, Equatable, Identifiable {
         self.name = name
         self.sourceURL = sourceURL
         self.updatedAtUnix = updatedAtUnix
+        self.lastFetchedAtUnix = lastFetchedAtUnix
         self.refreshInterval = refreshInterval
         self.color = color
         self.icon = icon

@@ -10,6 +10,29 @@ private enum RunningMode {
 private let portConflictRetryAttempts = 10
 private let portConflictRetryDelayNanoseconds: UInt64 = 200_000_000
 
+private enum SubscriptionRefreshTrigger {
+    case manual
+    case automatic
+}
+
+private struct SubscriptionRefreshRequest {
+    var id: UUID
+    var sourceURL: URL
+}
+
+private struct AutomaticSubscriptionRefreshState {
+    var id: UUID
+    var sourceURL: URL
+    var intervalSeconds: TimeInterval
+    var lastFetchedAtUnix: TimeInterval?
+}
+
+private struct AutomaticSubscriptionRefreshConfiguration: Equatable {
+    var id: UUID
+    var sourceURL: String
+    var intervalSeconds: TimeInterval
+}
+
 @MainActor
 public final class ClientViewModel: ObservableObject {
     @Published public private(set) var profiles: [ConnectionProfile]
@@ -49,6 +72,11 @@ public final class ClientViewModel: ObservableObject {
     private var startTask: Task<Void, Never>?
     private var importTask: Task<Void, Never>?
     private var refreshTasks: [UUID: Task<Void, Never>] = [:]
+    private var refreshTaskTokens: [UUID: UUID] = [:]
+    private var automaticRefreshTasks: [UUID: Task<Void, Never>] = [:]
+    private var automaticRefreshTaskTokens: [UUID: UUID] = [:]
+    private var automaticRefreshConfigurations: [UUID: AutomaticSubscriptionRefreshConfiguration] = [:]
+    private var automaticRefreshAttemptedAt: [UUID: Date] = [:]
     private var pingTasks: [UUID: Task<Void, Never>] = [:]
     private var runningMode: RunningMode?
 
@@ -79,7 +107,8 @@ public final class ClientViewModel: ObservableObject {
         selectedNetworkService = store.loadSelectedNetworkService()
 
         let storedProfiles = store.loadProfiles()
-        let loadedProfiles = storedProfiles.map { $0.normalizedForCurrentDefaults() }
+        var loadedProfiles = storedProfiles.map { $0.normalizedForCurrentDefaults() }
+        loadedProfiles = Self.initializedSubscriptionFetchTimes(in: loadedProfiles, now: Date())
         if loadedProfiles != storedProfiles {
             store.saveProfiles(loadedProfiles)
         }
@@ -92,6 +121,7 @@ public final class ClientViewModel: ObservableObject {
 
         observeEngineEvents()
         loadNetworkServices()
+        rescheduleAutomaticSubscriptionRefreshes()
         #if os(iOS)
         if !hasStoredUseSystemProxy {
             enableSystemVPNByDefaultIfAvailable()
@@ -104,6 +134,7 @@ public final class ClientViewModel: ObservableObject {
         startTask?.cancel()
         importTask?.cancel()
         refreshTasks.values.forEach { $0.cancel() }
+        automaticRefreshTasks.values.forEach { $0.cancel() }
         pingTasks.values.forEach { $0.cancel() }
         #if os(iOS)
         Task { @MainActor [backgroundRuntimeKeeper] in
@@ -180,6 +211,7 @@ public final class ClientViewModel: ObservableObject {
         }
         store.deleteSecrets(profileIDs: removedIDs)
         selectProfileAfterDeletion()
+        rescheduleAutomaticSubscriptionRefreshes()
     }
 
     public func deleteProfiles(ids: [UUID]) {
@@ -187,6 +219,7 @@ public final class ClientViewModel: ObservableObject {
         profiles.removeAll { ids.contains($0.id) }
         store.deleteSecrets(profileIDs: removedIDs)
         selectProfileAfterDeletion()
+        rescheduleAutomaticSubscriptionRefreshes()
     }
 
     public func deleteSubscription(_ id: UUID) {
@@ -198,48 +231,30 @@ public final class ClientViewModel: ObservableObject {
 
     public func refreshSubscription(_ id: UUID) {
         saveDraft()
-
-        guard let metadata = profiles.compactMap(\.subscription).first(where: { $0.id == id }) else {
-            appendLog(AppLocalization.string("Could not refresh subscription: subscription was not found."))
-            return
-        }
-
-        guard let sourceURLValue = metadata.sourceURL, let sourceURL = URL(string: sourceURLValue) else {
-            appendLog(AppLocalization.format("Subscription %@ has no refresh URL.", metadata.name))
-            return
-        }
-
-        refreshTasks[id]?.cancel()
-        refreshTasks[id] = Task { [weak self] in
-            guard let self else { return }
-            refreshingSubscriptionIDs.insert(id)
-            defer {
-                refreshingSubscriptionIDs.remove(id)
-                refreshTasks[id] = nil
-            }
-
-            do {
-                let content = try await fetchSubscription(from: sourceURL)
-                try refreshSubscription(content, sourceURL: sourceURL, existingSubscriptionID: id)
-            } catch {
-                appendLog(AppLocalization.format("Could not refresh subscription: %@", error.localizedDescription))
-            }
-        }
+        startSubscriptionRefresh(id, trigger: .manual)
     }
 
     public func updateSubscriptionSource(_ id: UUID, sourceURL: String?) {
         let normalizedURL = sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         let storedURL = normalizedURL?.isEmpty == true ? nil : normalizedURL
+        let fetchBaseline = Date().timeIntervalSince1970
 
         for index in profiles.indices where profiles[index].subscription?.id == id {
             profiles[index].subscription?.sourceURL = storedURL
+            if storedURL != nil, profiles[index].subscription?.lastFetchedAtUnix == nil {
+                profiles[index].subscription?.lastFetchedAtUnix = fetchBaseline
+            }
         }
 
         if draft.subscription?.id == id {
             draft.subscription?.sourceURL = storedURL
+            if storedURL != nil, draft.subscription?.lastFetchedAtUnix == nil {
+                draft.subscription?.lastFetchedAtUnix = fetchBaseline
+            }
         }
 
         persistProfiles()
+        rescheduleAutomaticSubscriptionRefreshes()
     }
 
     public func pingProfile(_ id: UUID) {
@@ -561,6 +576,7 @@ public final class ClientViewModel: ObservableObject {
         saveDraft()
 
         let imported = try subscriptionParser.parse(value, sourceURL: sourceURL)
+        let importedProfiles = profilesWithSubscriptionFetchTime(imported.profiles, fetchedAt: Date())
         let existingIDs: Set<UUID>
         if let sourceURL {
             existingIDs = Set(
@@ -578,19 +594,26 @@ public final class ClientViewModel: ObservableObject {
         }
 
         replacePlaceholderIfNeeded()
-        profiles.append(contentsOf: imported.profiles)
-        if let firstProfile = imported.profiles.first {
+        profiles.append(contentsOf: importedProfiles)
+        if let firstProfile = importedProfiles.first {
             selectedProfileID = firstProfile.id
             draft = firstProfile
         }
         persistProfiles()
-        appendLog(AppLocalization.format("Imported subscription %@: %d server(s).", imported.name, imported.profiles.count))
+        rescheduleAutomaticSubscriptionRefreshes()
+        appendLog(AppLocalization.format("Imported subscription %@: %d server(s).", imported.name, importedProfiles.count))
     }
 
-    private func refreshSubscription(_ value: String, sourceURL: URL, existingSubscriptionID: UUID) throws {
+    private func refreshSubscription(
+        _ value: String,
+        sourceURL: URL,
+        existingSubscriptionID: UUID,
+        fetchedAt: Date
+    ) throws {
         saveDraft()
 
         let imported = try subscriptionParser.parse(value, sourceURL: sourceURL)
+        let importedProfiles = profilesWithSubscriptionFetchTime(imported.profiles, fetchedAt: fetchedAt)
         let existingIndices = profiles.indices.filter { index in
             profiles[index].subscription?.id == existingSubscriptionID
         }
@@ -609,7 +632,7 @@ public final class ClientViewModel: ObservableObject {
 
         var matchedExistingIDs: Set<UUID> = []
         var refreshedProfiles: [ConnectionProfile] = []
-        for importedProfile in imported.profiles {
+        for importedProfile in importedProfiles {
             var profile = importedProfile
             profile.subscription?.id = existingSubscriptionID
 
@@ -642,6 +665,7 @@ public final class ClientViewModel: ObservableObject {
         }
 
         persistProfiles()
+        rescheduleAutomaticSubscriptionRefreshes()
         appendLog(
             AppLocalization.format(
                 "Subscription %@ refreshed: %d updated, %d added, %d removed.",
@@ -651,6 +675,87 @@ public final class ClientViewModel: ObservableObject {
                 deletedIDs.count
             )
         )
+    }
+
+    @discardableResult
+    private func startSubscriptionRefresh(
+        _ id: UUID,
+        trigger: SubscriptionRefreshTrigger
+    ) -> Task<Void, Never>? {
+        if trigger == .automatic, refreshTasks[id] != nil {
+            return nil
+        }
+
+        guard let request = subscriptionRefreshRequest(for: id, shouldLogFailures: trigger == .manual) else {
+            return nil
+        }
+
+        if trigger == .manual {
+            refreshTasks[id]?.cancel()
+        } else if refreshTasks[id] != nil {
+            return nil
+        }
+
+        let token = UUID()
+        refreshTaskTokens[id] = token
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await performSubscriptionRefresh(request, token: token)
+        }
+        refreshTasks[id] = task
+        return task
+    }
+
+    private func subscriptionRefreshRequest(
+        for id: UUID,
+        shouldLogFailures: Bool
+    ) -> SubscriptionRefreshRequest? {
+        guard let metadata = profiles.compactMap(\.subscription).first(where: { $0.id == id }) else {
+            if shouldLogFailures {
+                appendLog(AppLocalization.string("Could not refresh subscription: subscription was not found."))
+            }
+            return nil
+        }
+
+        guard let sourceURLValue = metadata.sourceURL, let sourceURL = URL(string: sourceURLValue) else {
+            if shouldLogFailures {
+                appendLog(AppLocalization.format("Subscription %@ has no refresh URL.", metadata.name))
+            }
+            return nil
+        }
+
+        return SubscriptionRefreshRequest(id: id, sourceURL: sourceURL)
+    }
+
+    private func performSubscriptionRefresh(_ request: SubscriptionRefreshRequest, token: UUID) async {
+        refreshingSubscriptionIDs.insert(request.id)
+        defer {
+            if refreshTaskTokens[request.id] == token {
+                refreshingSubscriptionIDs.remove(request.id)
+                refreshTasks[request.id] = nil
+                refreshTaskTokens[request.id] = nil
+            }
+        }
+
+        do {
+            let content = try await fetchSubscription(from: request.sourceURL)
+            guard !Task.isCancelled else {
+                return
+            }
+            try refreshSubscription(
+                content,
+                sourceURL: request.sourceURL,
+                existingSubscriptionID: request.id,
+                fetchedAt: Date()
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else {
+                return
+            }
+            appendLog(AppLocalization.format("Could not refresh subscription: %@", error.localizedDescription))
+        }
     }
 
     private func mergeImportedSubscriptionProfile(
@@ -689,6 +794,169 @@ public final class ClientViewModel: ObservableObject {
         keys.append("connection-full:\(fullConnectionKey)")
         keys.append("connection:\(connectionKey)")
         return keys
+    }
+
+    private func rescheduleAutomaticSubscriptionRefreshes() {
+        let states = automaticSubscriptionRefreshStates()
+        let desiredIDs = Set(states.map(\.id))
+
+        for id in Array(automaticRefreshTasks.keys) where !desiredIDs.contains(id) {
+            automaticRefreshTasks[id]?.cancel()
+            automaticRefreshTasks[id] = nil
+            automaticRefreshTaskTokens[id] = nil
+            automaticRefreshConfigurations[id] = nil
+            automaticRefreshAttemptedAt[id] = nil
+        }
+
+        for state in states {
+            let configuration = AutomaticSubscriptionRefreshConfiguration(
+                id: state.id,
+                sourceURL: state.sourceURL.absoluteString,
+                intervalSeconds: state.intervalSeconds
+            )
+            if automaticRefreshConfigurations[state.id] == configuration,
+               automaticRefreshTasks[state.id] != nil {
+                continue
+            }
+
+            automaticRefreshTasks[state.id]?.cancel()
+            automaticRefreshAttemptedAt[state.id] = nil
+
+            let token = UUID()
+            automaticRefreshTaskTokens[state.id] = token
+            automaticRefreshConfigurations[state.id] = configuration
+            automaticRefreshTasks[state.id] = Task { [weak self] in
+                await self?.runAutomaticSubscriptionRefreshLoop(subscriptionID: state.id, token: token)
+            }
+        }
+    }
+
+    private func runAutomaticSubscriptionRefreshLoop(subscriptionID id: UUID, token: UUID) async {
+        defer {
+            if automaticRefreshTaskTokens[id] == token {
+                automaticRefreshTasks[id] = nil
+                automaticRefreshTaskTokens[id] = nil
+                automaticRefreshConfigurations[id] = nil
+                automaticRefreshAttemptedAt[id] = nil
+            }
+        }
+
+        while !Task.isCancelled {
+            guard let state = automaticSubscriptionRefreshState(for: id) else {
+                return
+            }
+
+            let delay = automaticRefreshDelay(for: state, now: Date())
+            guard await sleepForAutomaticRefresh(seconds: delay) else {
+                return
+            }
+            guard !Task.isCancelled, automaticRefreshTaskTokens[id] == token else {
+                return
+            }
+
+            guard automaticSubscriptionRefreshState(for: id) != nil else {
+                return
+            }
+            automaticRefreshAttemptedAt[id] = Date()
+
+            if let refreshTask = startSubscriptionRefresh(id, trigger: .automatic) {
+                await refreshTask.value
+            }
+        }
+    }
+
+    private func automaticSubscriptionRefreshState(for id: UUID) -> AutomaticSubscriptionRefreshState? {
+        automaticSubscriptionRefreshStates().first { $0.id == id }
+    }
+
+    private func automaticSubscriptionRefreshStates() -> [AutomaticSubscriptionRefreshState] {
+        var seenIDs: Set<UUID> = []
+        var states: [AutomaticSubscriptionRefreshState] = []
+
+        for profile in profiles {
+            guard let metadata = profile.subscription,
+                  !seenIDs.contains(metadata.id),
+                  let sourceURLValue = metadata.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !sourceURLValue.isEmpty,
+                  let sourceURL = URL(string: sourceURLValue),
+                  let intervalSeconds = SubscriptionRefreshInterval.seconds(from: metadata.refreshInterval),
+                  SubscriptionRefreshInterval.nanoseconds(from: intervalSeconds) != nil else {
+                continue
+            }
+
+            seenIDs.insert(metadata.id)
+            states.append(
+                AutomaticSubscriptionRefreshState(
+                    id: metadata.id,
+                    sourceURL: sourceURL,
+                    intervalSeconds: intervalSeconds,
+                    lastFetchedAtUnix: metadata.lastFetchedAtUnix
+                )
+            )
+        }
+
+        return states
+    }
+
+    private func automaticRefreshDelay(
+        for state: AutomaticSubscriptionRefreshState,
+        now: Date
+    ) -> TimeInterval {
+        let anchors = [
+            state.lastFetchedAtUnix.map(Date.init(timeIntervalSince1970:)),
+            automaticRefreshAttemptedAt[state.id],
+        ].compactMap { $0 }
+
+        guard let anchor = anchors.max() else {
+            return state.intervalSeconds
+        }
+
+        return max(0, anchor.addingTimeInterval(state.intervalSeconds).timeIntervalSince(now))
+    }
+
+    private func sleepForAutomaticRefresh(seconds: TimeInterval) async -> Bool {
+        guard seconds > 0 else {
+            return !Task.isCancelled
+        }
+        guard let nanoseconds = SubscriptionRefreshInterval.nanoseconds(from: seconds) else {
+            return false
+        }
+
+        do {
+            try await Task.sleep(nanoseconds: nanoseconds)
+            return !Task.isCancelled
+        } catch {
+            return false
+        }
+    }
+
+    private func profilesWithSubscriptionFetchTime(
+        _ profiles: [ConnectionProfile],
+        fetchedAt: Date
+    ) -> [ConnectionProfile] {
+        let fetchedAtUnix = fetchedAt.timeIntervalSince1970
+        return profiles.map { profile in
+            var profile = profile
+            profile.subscription?.lastFetchedAtUnix = fetchedAtUnix
+            return profile
+        }
+    }
+
+    private static func initializedSubscriptionFetchTimes(
+        in profiles: [ConnectionProfile],
+        now: Date
+    ) -> [ConnectionProfile] {
+        let fetchedAtUnix = now.timeIntervalSince1970
+        return profiles.map { profile in
+            var profile = profile
+            let sourceURL = profile.subscription?.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if profile.subscription?.lastFetchedAtUnix == nil,
+               sourceURL?.isEmpty == false,
+               SubscriptionRefreshInterval.seconds(from: profile.subscription?.refreshInterval) != nil {
+                profile.subscription?.lastFetchedAtUnix = fetchedAtUnix
+            }
+            return profile
+        }
     }
 
     private func replacePlaceholderIfNeeded() {

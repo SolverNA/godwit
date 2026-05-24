@@ -85,6 +85,7 @@
 "Error: %@" = "Error: %@";
 "%d ms" = "%d ms";
 "Last ping: %d ms" = "Last ping: %d ms";
+"updated %@ ago" = "updated %@ ago";
 "subscription" = "subscription";
 "Could not refresh subscription: subscription was not found." = "Could not refresh subscription: subscription was not found.";
 "Subscription %@ has no refresh URL." = "Subscription %@ has no refresh URL.";

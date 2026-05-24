@@ -946,9 +946,27 @@ private struct SubscriptionSelectionRow: View {
             SubscriptionMarker(metadata: group.metadata)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(group.metadata.name)
-                    .font(.body.weight(.semibold))
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(group.metadata.name)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .layoutPriority(1)
+
+                    if let lastRefreshDisplayDate {
+                        Text("·")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: true, vertical: false)
+
+                        TimelineView(.periodic(from: Date(), by: 30)) { timeline in
+                            Text(lastRefreshText(since: lastRefreshDisplayDate, now: timeline.date))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
+                }
 
                 Text(subscriptionDetail)
                     .font(.caption)
@@ -991,6 +1009,27 @@ private struct SubscriptionSelectionRow: View {
             return "\(serverTitle) · \(available)"
         }
         return serverTitle
+    }
+
+    private var lastRefreshDisplayDate: Date? {
+        guard SubscriptionRefreshInterval.seconds(from: group.metadata.refreshInterval) != nil else {
+            return nil
+        }
+        return group.metadata.lastFetchedAtUnix.map(Date.init(timeIntervalSince1970:))
+    }
+
+    private func lastRefreshText(since date: Date, now: Date) -> String {
+        let formatter = DateComponentsFormatter()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = AppLocalization.locale
+        formatter.calendar = calendar
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 1
+        formatter.allowedUnits = [.day, .hour, .minute, .second]
+
+        let elapsed = max(0, now.timeIntervalSince(date))
+        let elapsedText = formatter.string(from: elapsed) ?? "0s"
+        return AppLocalization.format("updated %@ ago", elapsedText)
     }
 }
 

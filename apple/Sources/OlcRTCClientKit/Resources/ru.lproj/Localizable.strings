@@ -13,6 +13,7 @@
 "Error: %@" = "Ошибка: %@";
 "%d ms" = "%d мс";
 "Last ping: %d ms" = "Последний пинг: %d мс";
+"updated %@ ago" = "обновлено %@ назад";
 "subscription" = "подписки";
 "Could not refresh subscription: subscription was not found." = "Не удалось обновить подписку: подписка не найдена.";
 "Subscription %@ has no refresh URL." = "У подписки %@ нет ссылки для обновления.";
