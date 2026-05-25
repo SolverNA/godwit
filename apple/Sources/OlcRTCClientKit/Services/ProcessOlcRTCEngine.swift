@@ -55,7 +55,9 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
         }
 
         guard let supportRoot = supportRoot() else {
-            throw OlcRTCEngineError.cliMissing("olcRTC support files were not found. Set OLCRTC_REPO_ROOT.")
+            throw OlcRTCEngineError.cliMissing(
+                "olcRTC support files were not found. Set OLCRTC_REPO_ROOT or build the app with --olcrtc-root."
+            )
         }
         guard let cliURL = cliURL(supportRoot: supportRoot) else {
             throw OlcRTCEngineError.cliMissing(
@@ -321,20 +323,28 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
             return URL(fileURLWithPath: value)
         }
 
-        let candidates = [
+        var candidates = [
             Bundle.main.resourceURL?.appendingPathComponent("olcrtc-macos"),
-            supportRoot.appendingPathComponent("../apple/.build/olcrtc-macos"),
             supportRoot.appendingPathComponent("build/olcrtc-darwin-arm64"),
             supportRoot.appendingPathComponent("build/olcrtc-darwin-amd64"),
             supportRoot.appendingPathComponent("build/olcrtc"),
         ]
         .compactMap { $0 }
 
+        let bundleURL = Bundle.main.resourceURL ?? Bundle.main.bundleURL
+        if let root = walkUpForSupportRoot(from: bundleURL) {
+            candidates.append(root.appendingPathComponent("olcrtc-macos"))
+        }
+
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
     private func supportRoot() -> URL? {
         let environment = ProcessInfo.processInfo.environment
+
+        if let value = environment["OLCRTC_REPO_ROOT"], !value.isEmpty {
+            return URL(fileURLWithPath: value)
+        }
 
         var candidates = [
             Bundle.main.resourceURL,
@@ -346,10 +356,6 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
             if let root = walkUpForSupportRoot(from: candidate) {
                 return root
             }
-        }
-
-        if let value = environment["OLCRTC_REPO_ROOT"], !value.isEmpty {
-            return URL(fileURLWithPath: value)
         }
 
         candidates.removeAll()
@@ -372,10 +378,6 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
             let names = current.appendingPathComponent("data/names")
             if FileManager.default.fileExists(atPath: names.path) {
                 return current
-            }
-            let nestedNames = current.appendingPathComponent("olcrtc/data/names")
-            if FileManager.default.fileExists(atPath: nestedNames.path) {
-                return current.appendingPathComponent("olcrtc")
             }
             current.deleteLastPathComponent()
         }

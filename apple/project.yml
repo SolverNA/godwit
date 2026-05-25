@@ -100,7 +100,5 @@ schemes:
         OlcRTCClient macOS: all
     run:
       config: Debug
-      environmentVariables:
-        OLCRTC_REPO_ROOT: ${PROJECT_DIR}/../olcrtc
     archive:
       config: Release

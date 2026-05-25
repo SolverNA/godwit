@@ -5,6 +5,19 @@ import AppKit
 import UIKit
 #endif
 
+private let subscriptionDetailValueColumnWidth: CGFloat = 200
+#if os(iOS)
+private let subscriptionDetailTextFieldWidth: CGFloat = 148
+private let subscriptionDetailLabelMinWidth: CGFloat = 0
+private let subscriptionDetailRowSpacing: CGFloat = 8
+private let subscriptionDetailSpacerMinLength: CGFloat = 8
+#else
+private let subscriptionDetailTextFieldWidth: CGFloat = subscriptionDetailValueColumnWidth
+private let subscriptionDetailLabelMinWidth: CGFloat = 170
+private let subscriptionDetailRowSpacing: CGFloat = 12
+private let subscriptionDetailSpacerMinLength: CGFloat = 16
+#endif
+
 public struct ContentView: View {
     @StateObject private var viewModel: ClientViewModel
     @State private var isShowingImporter = false
@@ -1019,17 +1032,25 @@ private struct SubscriptionSelectionRow: View {
     }
 
     private func lastRefreshText(since date: Date, now: Date) -> String {
-        let formatter = DateComponentsFormatter()
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = AppLocalization.locale
-        formatter.calendar = calendar
-        formatter.unitsStyle = .abbreviated
-        formatter.maximumUnitCount = 1
-        formatter.allowedUnits = [.day, .hour, .minute, .second]
-
         let elapsed = max(0, now.timeIntervalSince(date))
-        let elapsedText = formatter.string(from: elapsed) ?? "0s"
-        return AppLocalization.format("updated %@ ago", elapsedText)
+        return AppLocalization.format("updated %@ ago", abbreviatedDuration(elapsed))
+    }
+
+    private func abbreviatedDuration(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval.rounded(.down)))
+        let isRussian = AppLocalization.localeIdentifier.hasPrefix("ru")
+        let units: [(value: Int, en: String, ru: String)] = [
+            (86_400, "d", "д"),
+            (3_600, "h", "ч"),
+            (60, "min", "мин"),
+            (1, "s", "с"),
+        ]
+
+        for unit in units where seconds >= unit.value {
+            return "\(seconds / unit.value)\(isRussian ? unit.ru : unit.en)"
+        }
+
+        return isRussian ? "0с" : "0s"
     }
 }
 
@@ -1314,11 +1335,18 @@ private struct SubscriptionDetailView: View {
             Section("Подписка") {
                 LabeledContent("Название", value: group.metadata.name)
 
-                TextField("Источник", text: $sourceURL)
-                    .settingsPlainInput()
-                    .onSubmit(saveSourceAndRefresh)
+                SubscriptionSourceTextRow(
+                    title: "Источник",
+                    text: $sourceURL,
+                    onCommit: saveSourceAndRefresh
+                )
 
                 LabeledContent("Серверы", value: "\(group.profiles.count)")
+
+                if let refreshInterval = group.metadata.refreshInterval?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !refreshInterval.isEmpty {
+                    LabeledContent("Интервал автообновления", value: refreshInterval)
+                }
 
                 if let available = group.metadata.available {
                     LabeledContent("Доступно", value: available)
@@ -1376,6 +1404,46 @@ private struct SubscriptionDetailView: View {
     }
 }
 
+private struct SubscriptionSourceTextRow: View {
+    let title: String
+    @Binding var text: String
+    let onCommit: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: subscriptionDetailRowSpacing) {
+            Text(LocalizedStringKey(title))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(minWidth: subscriptionDetailLabelMinWidth, alignment: .leading)
+                .layoutPriority(1)
+
+            Spacer(minLength: subscriptionDetailSpacerMinLength)
+
+            #if os(macOS)
+            SubscriptionSourceMacTextField(
+                text: $text,
+                accessibilityLabel: title,
+                onCommit: onCommit
+            )
+            .frame(width: subscriptionDetailTextFieldWidth, height: 22, alignment: .center)
+            #else
+            TextField("", text: $text)
+                .settingsPlainInput()
+                .multilineTextAlignment(.trailing)
+                .focused($isFocused)
+                .frame(width: subscriptionDetailTextFieldWidth)
+                .contentShape(Rectangle())
+                .accessibilityLabel(Text(LocalizedStringKey(title)))
+                .onTapGesture {
+                    isFocused = true
+                }
+                .onSubmit(onCommit)
+            #endif
+        }
+    }
+}
+
 private struct UnavailableDetailView: View {
     var body: some View {
         VStack(spacing: 10) {
@@ -1393,6 +1461,164 @@ private struct UnavailableDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+#if os(macOS)
+private struct SubscriptionSourceMacTextField: NSViewRepresentable {
+    @Binding var text: String
+    let accessibilityLabel: String
+    let onCommit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onCommit: onCommit)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = SubscriptionSourceNoFocusRingTextField()
+        textField.delegate = context.coordinator
+        textField.stringValue = text
+        textField.isBordered = false
+        textField.isBezeled = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.alignment = .right
+        textField.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textField.lineBreakMode = .byTruncatingHead
+        textField.cell = SubscriptionSourceCenteredTextFieldCell(textCell: text)
+        textField.cell?.usesSingleLineMode = true
+        textField.cell?.wraps = false
+        textField.cell?.isScrollable = true
+        textField.cell?.lineBreakMode = .byTruncatingHead
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.textColor = .labelColor
+        textField.setAccessibilityLabel(accessibilityLabel)
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.onCommit = onCommit
+
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+
+        nsView.alignment = .right
+        nsView.focusRingType = .none
+        nsView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        nsView.textColor = .labelColor
+        nsView.setAccessibilityLabel(accessibilityLabel)
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        var onCommit: () -> Void
+
+        init(text: Binding<String>, onCommit: @escaping () -> Void) {
+            self.text = text
+            self.onCommit = onCommit
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else {
+                return
+            }
+
+            text.wrappedValue = textField.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else {
+                return
+            }
+
+            text.wrappedValue = textField.stringValue
+            onCommit()
+        }
+
+        func control(
+            _ control: NSControl,
+            textView: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
+                return false
+            }
+
+            if let textField = control as? NSTextField {
+                text.wrappedValue = textField.stringValue
+            }
+            control.window?.makeFirstResponder(nil)
+            onCommit()
+            return true
+        }
+    }
+}
+
+private final class SubscriptionSourceNoFocusRingTextField: NSTextField {
+    override var focusRingType: NSFocusRingType {
+        get { .none }
+        set {}
+    }
+
+    override var focusRingMaskBounds: NSRect {
+        .zero
+    }
+
+    override func drawFocusRingMask() {}
+}
+
+private final class SubscriptionSourceCenteredTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        centeredRect(forBounds: rect)
+    }
+
+    override func edit(
+        withFrame cellFrame: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(
+            withFrame: centeredRect(forBounds: cellFrame),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            event: event
+        )
+    }
+
+    override func select(
+        withFrame cellFrame: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        start selStart: Int,
+        length selLength: Int
+    ) {
+        super.select(
+            withFrame: centeredRect(forBounds: cellFrame),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            start: selStart,
+            length: selLength
+        )
+    }
+
+    private func centeredRect(forBounds rect: NSRect) -> NSRect {
+        var drawingRect = super.drawingRect(forBounds: rect)
+        let textHeight = cellSize(forBounds: rect).height
+        let verticalOffset = max(0, (drawingRect.height - textHeight) / 2)
+        drawingRect.origin.y += verticalOffset
+        drawingRect.size.height -= verticalOffset * 2
+        return drawingRect
+    }
+}
+#endif
 
 private struct LogScreen: View {
     @Environment(\.dismiss) private var dismiss

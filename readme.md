@@ -25,13 +25,35 @@ sudo xcodebuild -license accept
 
 ## Сборка
 
+Кодовая база OlcRTC поставляется отдельно и не хранится внутри этого
+репозитория. Для скриптов, которые собирают Go CLI или `Mobile.xcframework`,
+передайте путь к внешнему checkout:
+
+```bash
+./apple/Scripts/build-xcframework.sh --olcrtc-root /path/to/olcrtc
+```
+
+То же можно задавать через переменную окружения:
+
+```bash
+OLCRTC_REPO_ROOT=/path/to/olcrtc ./apple/Scripts/build-xcframework.sh
+```
+
+Если запускается цепочка команд через `&&`, переменную нужно экспортировать
+заранее или передавать флаг каждому скрипту:
+
+```bash
+export OLCRTC_REPO_ROOT=/path/to/olcrtc
+./apple/Scripts/build-macos-app.sh && ./apple/Scripts/build-ios-unsigned-local-ipa.sh
+```
+
 ### Сборка неподписанного iOS-клиента
 
 Неподписанная сборка предназначена для local SOCKS режима на реальном iPhone
 без Network Extension entitlement:
 
 ```bash
-./apple/Scripts/build-ios-unsigned-local-ipa.sh
+./apple/Scripts/build-ios-unsigned-local-ipa.sh --olcrtc-root /path/to/olcrtc
 ```
 
 Результат:
@@ -92,7 +114,7 @@ iOS background runtime is active for local SOCKS.
 Из корня репозитория:
 
 ```bash
-./apple/Scripts/build-macos-app.sh
+./apple/Scripts/build-macos-app.sh --olcrtc-root /path/to/olcrtc
 open ./apple/.build/Godwit.app
 ```
 
@@ -129,7 +151,7 @@ IPA для разработки:
 ```bash
 DEVELOPMENT_TEAM=ABCDE12345 \
 EXPORT_METHOD=development \
-./apple/Scripts/build-ios-ipa.sh
+./apple/Scripts/build-ios-ipa.sh --olcrtc-root /path/to/olcrtc
 ```
 
 Ad-hoc IPA:
@@ -137,7 +159,7 @@ Ad-hoc IPA:
 ```bash
 DEVELOPMENT_TEAM=ABCDE12345 \
 EXPORT_METHOD=ad-hoc \
-./apple/Scripts/build-ios-ipa.sh
+./apple/Scripts/build-ios-ipa.sh --olcrtc-root /path/to/olcrtc
 ```
 
 Поддерживаемые значения `EXPORT_METHOD`:
@@ -178,5 +200,5 @@ community.openlibre.olcrtc.ios.PacketTunnel
 ## Дополнительно
 
 - Детали структуры проекта, XcodeGen и ограничения: [docs/dev.md](docs/dev.md).
-- Формат профилей и подписок описан в `olcrtc/docs/sub.md` и
-  `olcrtc/docs/uri.md`.
+- Формат профилей и подписок описан в `docs/sub.md` и `docs/uri.md` внешнего
+  репозитория OlcRTC.

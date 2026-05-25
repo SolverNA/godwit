@@ -11,6 +11,41 @@ EXPORT_DIR="${EXPORT_DIR:-$APPLE_DIR/.build/ios-ipa}"
 ARCHIVE_PATH="$ARCHIVE_DIR/Godwit.xcarchive"
 EXPORT_OPTIONS="$ARCHIVE_DIR/ExportOptions.plist"
 
+usage() {
+  cat <<'MSG'
+Usage:
+  DEVELOPMENT_TEAM=ABCDE12345 ./apple/Scripts/build-ios-ipa.sh --olcrtc-root /path/to/olcrtc
+
+The OlcRTC repository path can also be provided with OLCRTC_REPO_ROOT.
+MSG
+}
+
+OLCRTC_ROOT_ARG=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --olcrtc-root)
+      OLCRTC_ROOT_ARG="${2:-}"
+      if [[ -z "$OLCRTC_ROOT_ARG" ]]; then
+        echo "--olcrtc-root requires a path" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+source "$APPLE_DIR/Scripts/olcrtc-root.sh"
+OLCRTC_DIR="$(require_olcrtc_root "$OLCRTC_ROOT_ARG" "Usage: DEVELOPMENT_TEAM=ABCDE12345 ./apple/Scripts/build-ios-ipa.sh --olcrtc-root /path/to/olcrtc")"
+
 if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer ]]; then
   export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
@@ -71,7 +106,7 @@ if ! command -v gomobile >/dev/null 2>&1; then
 fi
 
 gomobile init
-"$APPLE_DIR/Scripts/build-xcframework.sh"
+"$APPLE_DIR/Scripts/build-xcframework.sh" --olcrtc-root "$OLCRTC_DIR"
 
 if command -v xcodegen >/dev/null 2>&1; then
   (cd "$APPLE_DIR" && xcodegen generate)

@@ -114,6 +114,7 @@ apple/.build/
 apple/.derived-data/
 apple/.swiftpm/
 apple/Frameworks/*.xcframework/
+/olcrtc/
 *.xcresult/
 **/xcuserdata/
 *.xcuserstate
@@ -253,5 +254,3 @@ go.work.sum
 # .vscode/
 build/
 GEMINI.md
-olcrtc/code/package-lock.json
-/olcrtc/olcrtc
