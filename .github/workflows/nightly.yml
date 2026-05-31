@@ -102,14 +102,18 @@ jobs:
 
           gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
 
+          {
+            echo "**Коммит:** \`${CURRENT_SHA}\`"
+            echo ""
+            echo "Автоматическая ночная сборка. Неподписанные клиенты для macOS и iOS."
+            echo ""
+            echo "**macOS** — при первом запуске появится предупреждение Gatekeeper: нажмите правой кнопкой → «Открыть»."
+            echo "**iOS** — собран с флагом \`LOCAL_SOCKS_ONLY\` без расширения Packet Tunnel. Для установки используйте AltStore или sideload."
+          } > /tmp/release-notes.md
+
           gh release create nightly \
             --title "Nightly ${DATE}" \
-            --notes "**Коммит:** \`${CURRENT_SHA}\`
-
-Автоматическая ночная сборка. Неподписанные клиенты для macOS и iOS.
-
-**macOS** — при первом запуске появится предупреждение Gatekeeper: нажмите правой кнопкой → «Открыть».
-**iOS** — собран с флагом \`LOCAL_SOCKS_ONLY\` без расширения Packet Tunnel. Для установки используйте AltStore или sideload." \
+            --notes-file /tmp/release-notes.md \
             --prerelease \
             dist/Godwit-macOS-unsigned.zip \
             dist/Godwit-unsigned-local.ipa
