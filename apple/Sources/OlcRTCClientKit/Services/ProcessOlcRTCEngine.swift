@@ -103,7 +103,15 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
             try await Task.sleep(nanoseconds: 200_000_000)
         }
 
-        throw OlcRTCEngineError.invalidProfile("olcRTC start timed out.")
+        let lastLine = withLock { lastOutputLine }
+        throw OlcRTCEngineError.invalidProfile(timeoutMessage(lastOutputLine: lastLine))
+    }
+
+    private func timeoutMessage(lastOutputLine: String?) -> String {
+        guard let lastOutputLine, !lastOutputLine.isEmpty else {
+            return "olcRTC start timed out."
+        }
+        return AppLocalization.format("olcRTC start timed out. Last log: %@", lastOutputLine)
     }
 
     public func stop() async {
@@ -192,9 +200,16 @@ public final class ProcessOlcRTCEngine: OlcRTCEngine {
         }
     }
 
+    // Time the process gets to shut down gracefully after SIGTERM before we SIGKILL it.
+    // It must be long enough for the carrier to leave its session cleanly (e.g. send XMPP
+    // "unavailable" presence and exit the Jitsi MUC); otherwise a killed process lingers as
+    // a ghost occupant under the same nick and blocks the next join until the server times
+    // it out — which manifests as the next connect hanging on "post-auth features".
+    private static let gracefulShutdownSeconds: TimeInterval = 6
+
     private func waitForExitOrKill(_ task: Process) async {
         let didExit = await Task.detached {
-            let deadline = Date().addingTimeInterval(2)
+            let deadline = Date().addingTimeInterval(Self.gracefulShutdownSeconds)
             while task.isRunning && Date() < deadline {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }

@@ -50,8 +50,12 @@ public struct ProfilePinger: ProfilePinging {
     private let timeoutMillis: Int
     private let pingURL: URL
 
+    // A freshly-established WebRTC tunnel needs more headroom than a direct request:
+    // 1.5s was tight enough that healthy-but-slow tunnels timed out and flagged red.
+    private static let httpPingTimeout: TimeInterval = 4.0
+
     public init(
-        timeoutMillis: Int = 10_000,
+        timeoutMillis: Int = 15_000,
         pingURL: URL = URL(string: "https://www.google.com/generate_204")!
     ) {
         self.timeoutMillis = timeoutMillis
@@ -93,6 +97,7 @@ public struct ProfilePinger: ProfilePinging {
     #if canImport(Mobile)
     private func pingWithMobile(profile: ConnectionProfile) async throws -> ProfilePingResult {
         let options = OlcRTCStartOptions(profile: profile)
+        let timeout = timeoutMillis
         let measured = try await Task.detached {
             var error: NSError?
             var result: Int64 = -1
@@ -103,7 +108,7 @@ public struct ProfilePinger: ProfilePinging {
                 options.clientID,
                 options.keyHex,
                 options.socksPort,
-                timeoutMillis,
+                timeout,
                 pingURL.absoluteString,
                 options.vp8FPS,
                 options.vp8BatchSize,
@@ -130,6 +135,8 @@ public struct ProfilePinger: ProfilePinging {
 
         do {
             try await engine.start(options: options)
+            // Ping uses a fixed startup budget (shorter than a real connection): a profile
+            // that needs longer than this to come up is treated as too slow for a quick check.
             try await engine.waitReady(timeoutMillis: timeoutMillis)
             let socksPort = await engine.activeSocksPort ?? options.socksPort
             let milliseconds = try await httpPingThroughSOCKS(port: socksPort)
@@ -147,14 +154,14 @@ public struct ProfilePinger: ProfilePinging {
             session.invalidateAndCancel()
         }
 
-        _ = try? await singleHTTPPing(session: session, timeout: 1.5)
+        _ = try? await singleHTTPPing(session: session, timeout: Self.httpPingTimeout)
 
         var best: Int?
         for index in 0..<3 {
             if index > 0 {
                 try await Task.sleep(nanoseconds: 80_000_000)
             }
-            let measured = try await singleHTTPPing(session: session, timeout: 1.5)
+            let measured = try await singleHTTPPing(session: session, timeout: Self.httpPingTimeout)
             best = min(best ?? measured, measured)
         }
 
@@ -166,8 +173,8 @@ public struct ProfilePinger: ProfilePinging {
 
     private func makeSOCKSSession(port: Int) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 1.5
-        configuration.timeoutIntervalForResource = 1.5
+        configuration.timeoutIntervalForRequest = Self.httpPingTimeout
+        configuration.timeoutIntervalForResource = Self.httpPingTimeout
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
         #if canImport(CFNetwork)

@@ -77,7 +77,9 @@ public final class ClientViewModel: ObservableObject {
     private var automaticRefreshTaskTokens: [UUID: UUID] = [:]
     private var automaticRefreshConfigurations: [UUID: AutomaticSubscriptionRefreshConfiguration] = [:]
     private var automaticRefreshAttemptedAt: [UUID: Date] = [:]
+    private static let maxConcurrentPings = 4
     private var pingTasks: [UUID: Task<Void, Never>] = [:]
+    private var subscriptionPingTasks: [UUID: Task<Void, Never>] = [:]
     private var runningMode: RunningMode?
 
     public init(
@@ -136,6 +138,7 @@ public final class ClientViewModel: ObservableObject {
         refreshTasks.values.forEach { $0.cancel() }
         automaticRefreshTasks.values.forEach { $0.cancel() }
         pingTasks.values.forEach { $0.cancel() }
+        subscriptionPingTasks.values.forEach { $0.cancel() }
         #if os(iOS)
         Task { @MainActor [backgroundRuntimeKeeper] in
             backgroundRuntimeKeeper.stop()
@@ -274,9 +277,60 @@ public final class ClientViewModel: ObservableObject {
             return
         }
 
+        guard subscriptionPingTasks[id] == nil else {
+            return
+        }
+
         let subscriptionName = profilesToPing.first?.subscription?.name ?? AppLocalization.string("subscription")
         appendLog(AppLocalization.format("Pinging subscription %@: %d profile(s).", subscriptionName, profilesToPing.count))
-        profilesToPing.forEach(startPing)
+
+        // Each ping spins up a full olcRTC tunnel, so unbounded concurrency starves
+        // CPU/network and makes healthy profiles time out at random. Cap the number of
+        // simultaneous pings instead.
+        subscriptionPingTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            defer { subscriptionPingTasks[id] = nil }
+
+            // Validate up front; queue only the profiles worth pinging.
+            var queue: [ConnectionProfile] = []
+            for profile in profilesToPing {
+                // Skip profiles already being pinged on their own to avoid double work.
+                if pingTasks[profile.id] != nil { continue }
+
+                if let validationMessage = validate(profile: profile) {
+                    pingResults[profile.id] = .failure(message: validationMessage)
+                    appendLog(
+                        AppLocalization.format(
+                            "Ping for %@ was not started: %@",
+                            profileLogName(profile),
+                            validationMessage
+                        )
+                    )
+                    continue
+                }
+
+                queue.append(profile)
+            }
+
+            var index = 0
+            await withTaskGroup(of: Void.self) { group in
+                func addNext() {
+                    guard index < queue.count else { return }
+                    let profile = queue[index]
+                    index += 1
+                    group.addTask { await self.performPing(profile) }
+                }
+
+                for _ in 0..<min(Self.maxConcurrentPings, queue.count) {
+                    addNext()
+                }
+
+                while await group.next() != nil {
+                    if Task.isCancelled { break }
+                    addNext()
+                }
+            }
+        }
     }
 
     public func importValue(_ value: String) {
@@ -524,29 +578,31 @@ public final class ClientViewModel: ObservableObject {
         }
 
         let profileID = profile.id
+        pingTasks[profileID] = Task { [weak self] in
+            guard let self else { return }
+            defer { pingTasks[profileID] = nil }
+            await performPing(profile)
+        }
+    }
+
+    private func performPing(_ profile: ConnectionProfile) async {
+        let profileID = profile.id
         let profileName = profileLogName(profile)
         pingingProfileIDs.insert(profileID)
         pingResults[profileID] = nil
+        defer { pingingProfileIDs.remove(profileID) }
 
-        pingTasks[profileID] = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                pingingProfileIDs.remove(profileID)
-                pingTasks[profileID] = nil
-            }
-
-            do {
-                let result = try await profilePinger.ping(profile: profile)
-                guard !Task.isCancelled else { return }
-                pingResults[profileID] = .success(milliseconds: result.milliseconds)
-                appendLog(AppLocalization.format("Ping %@: %d ms.", profileName, result.milliseconds))
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                pingResults[profileID] = .failure(message: error.localizedDescription)
-                appendLog(AppLocalization.format("Ping %@ failed: %@", profileName, error.localizedDescription))
-            }
+        do {
+            let result = try await profilePinger.ping(profile: profile)
+            guard !Task.isCancelled else { return }
+            pingResults[profileID] = .success(milliseconds: result.milliseconds)
+            appendLog(AppLocalization.format("Ping %@: %d ms.", profileName, result.milliseconds))
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            pingResults[profileID] = .failure(message: error.localizedDescription)
+            appendLog(AppLocalization.format("Ping %@ failed: %@", profileName, error.localizedDescription))
         }
     }
 
