@@ -77,12 +77,9 @@ public final class ClientViewModel: ObservableObject {
     private var automaticRefreshTaskTokens: [UUID: UUID] = [:]
     private var automaticRefreshConfigurations: [UUID: AutomaticSubscriptionRefreshConfiguration] = [:]
     private var automaticRefreshAttemptedAt: [UUID: Date] = [:]
-    private nonisolated static let maxConcurrentPings = 4
+    private static let maxConcurrentPings = 4
     private var pingTasks: [UUID: Task<Void, Never>] = [:]
     private var subscriptionPingTasks: [UUID: Task<Void, Never>] = [:]
-    /// Room of the active connection, if any. The olcRTC server latches a single client
-    /// peer per MUC, so this room must not be pinged concurrently with the live tunnel.
-    private var activeConnectionRoomKey: String?
     private var runningMode: RunningMode?
 
     public init(
@@ -288,31 +285,17 @@ public final class ClientViewModel: ObservableObject {
         appendLog(AppLocalization.format("Pinging subscription %@: %d profile(s).", subscriptionName, profilesToPing.count))
 
         // Each ping spins up a full olcRTC tunnel, so unbounded concurrency starves
-        // CPU/network and makes healthy profiles time out at random. Cap concurrency, and
-        // never probe two profiles that share a room at once — the server latches a single
-        // client peer per MUC, so same-room pings (or pinging the live connection's room)
-        // fight over that peer and time out.
+        // CPU/network and makes healthy profiles time out at random. Cap the number of
+        // simultaneous pings instead.
         subscriptionPingTasks[id] = Task { [weak self] in
             guard let self else { return }
             defer { subscriptionPingTasks[id] = nil }
 
-            let activeRoom = activeConnectionRoomKey
-
             // Validate up front; queue only the profiles worth pinging.
-            var pending: [ConnectionProfile] = []
+            var queue: [ConnectionProfile] = []
             for profile in profilesToPing {
                 // Skip profiles already being pinged on their own to avoid double work.
                 if pingTasks[profile.id] != nil { continue }
-
-                if let activeRoom, Self.roomKey(for: profile) == activeRoom {
-                    appendLog(
-                        AppLocalization.format(
-                            "Skipping ping for %@: its room is in use by the active connection.",
-                            profileLogName(profile)
-                        )
-                    )
-                    continue
-                }
 
                 if let validationMessage = validate(profile: profile) {
                     pingResults[profile.id] = .failure(message: validationMessage)
@@ -326,34 +309,25 @@ public final class ClientViewModel: ObservableObject {
                     continue
                 }
 
-                pending.append(profile)
+                queue.append(profile)
             }
 
-            var inFlightRooms: Set<String> = []
-            await withTaskGroup(of: String.self) { group in
-                // Launch pings up to the concurrency cap, skipping any whose room is busy.
-                func fillSlots() {
-                    while inFlightRooms.count < Self.maxConcurrentPings {
-                        guard let idx = pending.firstIndex(where: {
-                            !inFlightRooms.contains(Self.roomKey(for: $0))
-                        }) else {
-                            return
-                        }
-                        let profile = pending.remove(at: idx)
-                        let key = Self.roomKey(for: profile)
-                        inFlightRooms.insert(key)
-                        group.addTask {
-                            await self.performPing(profile)
-                            return key
-                        }
-                    }
+            var index = 0
+            await withTaskGroup(of: Void.self) { group in
+                func addNext() {
+                    guard index < queue.count else { return }
+                    let profile = queue[index]
+                    index += 1
+                    group.addTask { await self.performPing(profile) }
                 }
 
-                fillSlots()
-                while let finishedRoom = await group.next() {
-                    inFlightRooms.remove(finishedRoom)
+                for _ in 0..<min(Self.maxConcurrentPings, queue.count) {
+                    addNext()
+                }
+
+                while await group.next() != nil {
                     if Task.isCancelled { break }
-                    fillSlots()
+                    addNext()
                 }
             }
         }
@@ -454,8 +428,6 @@ public final class ClientViewModel: ObservableObject {
             )
         }
 
-        activeConnectionRoomKey = Self.roomKey(for: profileToStart)
-
         #if os(iOS)
         if useSystemProxy {
             startPacketTunnel(profile: profileToStart)
@@ -481,13 +453,11 @@ public final class ClientViewModel: ObservableObject {
                 await enableSystemProxyIfNeeded(port: activePort)
             } catch {
                 if error is CancellationError {
-                    activeConnectionRoomKey = nil
                     await engine.stop()
                     return
                 }
 
                 runningMode = nil
-                activeConnectionRoomKey = nil
                 status = .failed(error.localizedDescription)
                 appendLog(AppLocalization.format("Could not connect: %@", error.localizedDescription))
                 #if os(iOS)
@@ -570,7 +540,6 @@ public final class ClientViewModel: ObservableObject {
                 await engine.stop()
             }
             runningMode = nil
-            activeConnectionRoomKey = nil
             status = .stopped
         }
     }
@@ -589,13 +558,6 @@ public final class ClientViewModel: ObservableObject {
     private func persistProfiles() {
         store.saveProfiles(profiles)
         store.saveSelectedProfileID(selectedProfileID)
-    }
-
-    /// Identifies the MUC a profile joins. Profiles sharing a room contend for the same
-    /// single server-side peer, so they must never be probed at the same time.
-    private nonisolated static func roomKey(for profile: ConnectionProfile) -> String {
-        let room = profile.roomID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return "\(profile.carrier.rawValue)|\(room)"
     }
 
     private func startPing(_ profile: ConnectionProfile) {
