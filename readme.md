@@ -6,7 +6,7 @@ __ETH20 (USDT, USDC, ETH, etc): 0xb0292E226b140F3CC14B83777a09dF6d33Bc8613__
 
 __BTC: bc1qxj5cxnkeqj3rmhaydj8cfnz7frstl3p6dac7zw__
 
-__❗НАМ НУЖНЫ ДЕНЬГИ НА ПУБЛИКАЦИЮ В TESTFLIGHT❗__
+__УЖЕ СОБРАЛИ $63__
 
 <img height="640" alt="Image" src="https://github.com/user-attachments/assets/3535120e-48e1-4b34-9344-a61282bfe6f1" />
 
