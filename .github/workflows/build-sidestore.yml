@@ -1,0 +1,48 @@
+name: Build Unsigned IPA for SideStore
+
+on:
+  workflow_dispatch: # Позволит запускать сборку вручную кнопкой в интерфейсе
+
+jobs:
+  build-ios:
+    runs-on: macos-13
+    steps:
+      # 1. Скачиваем сам Godwit из твоего форка
+      - name: Checkout Godwit
+        uses: actions/checkout@v4
+        with:
+          path: godwit
+
+      # 2. Скачиваем внешний репозиторий OlcRTC 
+      - name: Checkout OlcRTC
+        uses: actions/checkout@v4
+        with:
+          repository: plumbicon/olcrtc # Если репозиторий называется иначе, поправь путь
+          path: olcrtc
+
+      # 3. Настраиваем Go окружение
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      # 4. Ставим xcodegen и gomobile, которые требуются по инструкции
+      - name: Install Dependencies
+        run: |
+          brew install xcodegen
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      # 5. Запускаем скрипт сборки НЕПОДПИСАННОГО локального IPA
+      - name: Build Unsigned IPA
+        run: |
+          cd godwit
+          ./apple/Scripts/build-ios-unsigned-local-ipa.sh --olcrtc-root ../olcrtc
+
+      # 6. Выкладываем готовый файл в артефакты сборки
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Godwit-Unsigned-SideStore
+          path: godwit/apple/.build/ios-unsigned-local/Godwit-unsigned-local.ipa
