@@ -99,9 +99,7 @@ public struct ProfilePinger: ProfilePinging {
         let options = OlcRTCStartOptions(profile: profile)
         let timeout = timeoutMillis
         let measured = try await Task.detached {
-            var error: NSError?
-            var result: Int64 = -1
-            let didPing = MobilePing(
+            try MobileCheck(
                 options.carrierName,
                 options.transportName,
                 options.roomID,
@@ -109,16 +107,9 @@ public struct ProfilePinger: ProfilePinging {
                 options.keyHex,
                 options.socksPort,
                 timeout,
-                pingURL.absoluteString,
                 options.vp8FPS,
-                options.vp8BatchSize,
-                &result,
-                &error
+                options.vp8BatchSize
             )
-            if !didPing {
-                throw error ?? ProfilePingError.invalidResult
-            }
-            return result
         }.value
 
         guard measured >= 0 else {
