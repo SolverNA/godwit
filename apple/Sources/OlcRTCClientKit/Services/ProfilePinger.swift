@@ -101,7 +101,7 @@ public struct ProfilePinger: ProfilePinging {
         let measured = try await Task.detached {
             var error: NSError?
             var result: Int64 = -1
-            let didPing = MobilePing(
+            let didPing = MobileCheck(
                 options.carrierName,
                 options.transportName,
                 options.roomID,
@@ -109,7 +109,6 @@ public struct ProfilePinger: ProfilePinging {
                 options.keyHex,
                 options.socksPort,
                 timeout,
-                pingURL.absoluteString,
                 options.vp8FPS,
                 options.vp8BatchSize,
                 &result,
