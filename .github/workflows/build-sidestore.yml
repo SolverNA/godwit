@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-13
+    runs-on: macos-latest
     steps:
       # 1. Скачиваем сам Godwit из твоего форка
       - name: Checkout Godwit
